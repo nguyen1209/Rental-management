@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+    <h2>Khách hàng</h2>
+    <a href="/add-customer" class="btn btn-primary">+ Thêm khách hàng</a>
+</div>
+<table class="table table-bordered">
+    <thead>
+        <tr><th>ID</th><th>Tên</th><th>SĐT</th><th>Email</th><th>Địa chỉ</th><th>Thao tác</th></tr>
+    </thead>
+    <tbody>
+        {% for c in customers %}
+        <tr>
+            <td>{{ c.id }}</td>
+            <td>{{ c.fullname }}</td>
+            <td>{{ c.phone }}</td>
+            <td>{{ c.email }}</td>
+            <td>{{ c.address }}</td>
+            <td><a href="/delete-customer/{{ c.id }}" class="btn btn-danger btn-sm" onclick="return confirm('Xóa?')">Xóa</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

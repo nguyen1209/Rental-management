@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3>{{ total_customers }}</h3>
+                <p>Khách hàng</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3>{{ total_products }}</h3>
+                <p>Sản phẩm</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3>{{ total_rentals }}</h3>
+                <p>Tổng đơn</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h3>{{ active_rentals }}</h3>
+                <p>Đang thuê</p>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row mt-4">
+    <div class="col-md-4">
+        <a href="/customers" class="btn btn-primary w-100">Quản lý khách hàng</a>
+    </div>
+    <div class="col-md-4">
+        <a href="/products" class="btn btn-success w-100">Quản lý sản phẩm</a>
+    </div>
+    <div class="col-md-4">
+        <a href="/rentals" class="btn btn-info w-100">Quản lý đơn thuê</a>
+    </div>
+</div>
+{% endblock %}

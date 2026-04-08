@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Chi tiết sản phẩm{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-body text-center">
+                {% if product.image_url %}
+                    <img src="{{ product.image_url }}" alt="{{ product.name }}" 
+                         style="width: 100%; max-width: 300px; height: auto; border-radius: 10px;"
+                         onerror="this.src='https://via.placeholder.com/300x300?text=No+Image'">
+                {% else %}
+                    <img src="https://via.placeholder.com/300x300?text=No+Image" 
+                         alt="No image" style="width: 100%; max-width: 300px; height: auto; border-radius: 10px;">
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">{{ product.name }}</h4>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tr>
+                        <th style="width: 150px">Danh mục:</th>
+                        <td><span class="badge bg-info">{{ product.category }}</span></td>
+                    </tr>
+                    <tr>
+                        <th>Giá thuê/ngày:</th>
+                        <td class="text-danger fw-bold">{{ "{:,.0f}".format(product.price_per_day) }} VNĐ</td>
+                    </tr>
+                    <tr>
+                        <th>Tiền cọc:</th>
+                        <td>{{ "{:,.0f}".format(product.deposit) }} VNĐ</td>
+                    </tr>
+                    <tr>
+                        <th>Số lượng:</th>
+                        <td>{{ product.quantity }}</td>
+                    </tr>
+                    <tr>
+                        <th>Còn lại:</th>
+                        <td>
+                            {% if product.available_quantity > 0 %}
+                                <span class="badge bg-success">{{ product.available_quantity }}</span>
+                            {% else %}
+                                <span class="badge bg-danger">Hết hàng</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if product.description %}
+                    <tr>
+                        <th>Mô tả:</th>
+                        <td>{{ product.description }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+            <div class="card-footer">
+                <a href="{{ url_for('products') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Quay lại
+                </a>
+                <a href="{{ url_for('edit_product', id=product.id) }}" class="btn btn-warning">
+                    <i class="fas fa-edit"></i> Sửa sản phẩm
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

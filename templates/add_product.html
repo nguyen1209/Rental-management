@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}Thêm sản phẩm mới{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-plus-circle"></i> Thêm sản phẩm mới</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Tên sản phẩm <span class="text-danger">*</span></label>
+                                <input type="text" name="name" class="form-control" required placeholder="Nhập tên sản phẩm">
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Danh mục <span class="text-danger">*</span></label>
+                                <input type="text" name="category" class="form-control" required 
+                                       placeholder="VD: Nhạc cụ, Âm thanh, Ánh sáng, Phụ kiện...">
+                                <small class="text-muted">Bạn có thể nhập danh mục tùy ý</small>
+                            </div>
+                            
+                            <div class="col-12 mb-3">
+                                <label class="form-label fw-bold">Mô tả sản phẩm</label>
+                                <textarea name="description" rows="4" class="form-control" 
+                                          placeholder="Mô tả chi tiết về sản phẩm..."></textarea>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold">Giá thuê/ngày <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <input type="number" name="price_per_day" class="form-control" required placeholder="0">
+                                    <span class="input-group-text">VNĐ</span>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold">Tiền cọc</label>
+                                <div class="input-group">
+                                    <input type="number" name="deposit" class="form-control" value="0" placeholder="0">
+                                    <span class="input-group-text">VNĐ</span>
+                                </div>
+                                <small class="text-muted">Số tiền cọc khi khách thuê</small>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label fw-bold">Số lượng <span class="text-danger">*</span></label>
+                                <input type="number" name="quantity" class="form-control" value="1" required min="1">
+                            </div>
+                            
+                            <!-- Phần upload ảnh -->
+                            <div class="col-12 mb-4">
+                                <label class="form-label fw-bold">Hình ảnh sản phẩm</label>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="border p-3 rounded">
+                                            <label class="form-label">📁 Tải ảnh từ máy tính:</label>
+                                            <input type="file" name="image" class="form-control" accept="image/*" 
+                                                   onchange="previewImage(this)">
+                                            <small class="text-muted d-block mt-2">
+                                                Hỗ trợ: PNG, JPG, JPEG, GIF (tối đa 5MB)
+                                            </small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="border p-3 rounded">
+                                            <label class="form-label">🔗 Hoặc nhập URL ảnh:</label>
+                                            <input type="text" name="image_url" class="form-control" 
+                                                   placeholder="https://example.com/image.jpg">
+                                            <small class="text-muted d-block mt-2">
+                                                Dán URL ảnh từ internet
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Khung xem trước ảnh -->
+                                <div id="imagePreview" class="mt-3 text-center" style="display: none;">
+                                    <div class="border p-3 rounded bg-light">
+                                        <label class="form-label fw-bold">Xem trước ảnh:</label>
+                                        <div>
+                                            <img id="preview" src="#" alt="Preview" 
+                                                 style="max-width: 200px; max-height: 200px; object-fit: cover; border-radius: 10px;">
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="clearPreview()">
+                                            Xóa ảnh
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save"></i> Lưu sản phẩm
+                            </button>
+                            <a href="{{ url_for('products') }}" class="btn btn-secondary btn-lg">
+                                <i class="fas fa-times"></i> Hủy bỏ
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function previewImage(input) {
+    var previewDiv = document.getElementById('imagePreview');
+    var previewImg = document.getElementById('preview');
+    
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        
+        reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            previewDiv.style.display = 'block';
+        }
+        
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        previewDiv.style.display = 'none';
+        previewImg.src = '#';
+    }
+}
+
+function clearPreview() {
+    var fileInput = document.querySelector('input[name="image"]');
+    var previewDiv = document.getElementById('imagePreview');
+    var previewImg = document.getElementById('preview');
+    
+    fileInput.value = '';
+    previewDiv.style.display = 'none';
+    previewImg.src = '#';
+}
+</script>
+
+<style>
+    .card {
+        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        border: none;
+    }
+    .form-label {
+        font-weight: 500;
+        margin-bottom: 8px;
+    }
+    .form-control:focus {
+        border-color: #80bdff;
+        box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    }
+    .border {
+        border: 1px solid #dee2e6;
+    }
+    .rounded {
+        border-radius: 8px;
+    }
+</style>
+{% endblock %}

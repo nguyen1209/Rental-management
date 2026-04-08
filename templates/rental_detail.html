@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Tạo đơn thuê</h2>
+<form method="POST">
+    <select name="customer_id" class="form-control mb-2" required>
+        <option value="">Chọn khách hàng</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}">{{ c.fullname }} - {{ c.phone }}</option>
+        {% endfor %}
+    </select>
+    <select name="product_id" class="form-control mb-2" required>
+        <option value="">Chọn sản phẩm</option>
+        {% for p in products %}
+        <option value="{{ p.id }}">{{ p.name }} - {{ "{:,.0f}".format(p.price_per_day) }} VNĐ/ngày</option>
+        {% endfor %}
+    </select>
+    <input type="date" name="start_date" class="form-control mb-2" required>
+    <input type="date" name="end_date" class="form-control mb-2" required>
+    <button type="submit" class="btn btn-primary">Tạo đơn</button>
+    <a href="/rentals" class="btn btn-secondary">Hủy</a>
+</form>
+{% endblock %}

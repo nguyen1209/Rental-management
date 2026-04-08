@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Báo cáo thống kê{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Báo cáo thống kê</h2>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Xuất báo cáo</h5>
+            </div>
+            <div class="card-body">
+                <a href="{{ url_for('export_report') }}" class="btn btn-success">
+                    <i class="fas fa-file-excel"></i> Xuất báo cáo doanh thu (Excel)
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Thống kê doanh thu theo tháng</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr><th>Tháng</th>
+                                <th>Số đơn</th>
+                                <th>Doanh thu</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in monthly_stats %}
+                            <tr>
+                                <td>{{ stat.month }}</td>
+                                <td>{{ stat.total_rentals }}</td>
+                                <td>{{ "{:,.0f}".format(stat.revenue) }} VNĐ</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Thống kê theo danh mục</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr><th>Danh mục</th>
+                                <th>Số đơn</th>
+                                <th>Doanh thu</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in category_stats %}
+                            <tr>
+                                <td>{{ stat.category }}</td>
+                                <td>{{ stat.rental_count }}</td>
+                                <td>{{ "{:,.0f}".format(stat.revenue) }} VNĐ</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Hướng dẫn sử dụng</h5>
+            </div>
+            <div class="card-body">
+                <ul>
+                    <li><strong>Dashboard:</strong> Xem tổng quan hoạt động kinh doanh</li>
+                    <li><strong>Khách hàng:</strong> Quản lý thông tin khách hàng</li>
+                    <li><strong>Sản phẩm:</strong> Quản lý danh mục sản phẩm cho thuê</li>
+                    <li><strong>Đơn thuê:</strong> Tạo và quản lý đơn thuê</li>
+                    <li><strong>Báo cáo:</strong> Xuất báo cáo doanh thu</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

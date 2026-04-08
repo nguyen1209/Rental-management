@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Sửa sản phẩm{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Sửa sản phẩm: {{ product.name }}</h2>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" enctype="multipart/form-data">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label>Tên sản phẩm *</label>
+                    <input type="text" name="name" class="form-control" value="{{ product.name }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label>Danh mục *</label>
+                    <input type="text" name="category" class="form-control" value="{{ product.category }}" required>
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label>Mô tả</label>
+                    <textarea name="description" rows="3" class="form-control">{{ product.description or '' }}</textarea>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label>Giá thuê/ngày (VNĐ) *</label>
+                    <input type="number" name="price_per_day" class="form-control" value="{{ product.price_per_day }}" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label>Tiền cọc (VNĐ) *</label>
+                    <input type="number" name="deposit" class="form-control" value="{{ product.deposit or 0 }}" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label>Số lượng *</label>
+                    <input type="number" name="quantity" class="form-control" value="{{ product.quantity }}" required>
+                </div>
+                
+                <!-- Hiển thị ảnh hiện tại -->
+                {% if product.image_url %}
+                <div class="col-md-12 mb-3">
+                    <label>Ảnh hiện tại:</label>
+                    <div>
+                        <img src="{{ product.image_url }}" alt="{{ product.name }}" 
+                             style="max-width: 200px; max-height: 200px; border-radius: 10px;">
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Upload ảnh mới -->
+                <div class="col-md-12 mb-3">
+                    <label>Chọn ảnh mới (để trống nếu không muốn đổi):</label>
+                    <input type="file" name="image" class="form-control" accept="image/*">
+                </div>
+                
+                <div class="col-md-12 mb-3">
+                    <label>Hoặc nhập URL ảnh mới:</label>
+                    <input type="text" name="image_url" class="form-control" value="{{ product.image_url or '' }}">
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary">Cập nhật</button>
+                <a href="{{ url_for('products') }}" class="btn btn-secondary">Hủy</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

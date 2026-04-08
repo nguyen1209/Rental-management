@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Sửa khách hàng{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Sửa thông tin khách hàng: {{ customer.fullname }}</h2>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label>Họ tên *</label>
+                    <input type="text" name="fullname" class="form-control" value="{{ customer.fullname }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label>Số điện thoại *</label>
+                    <input type="tel" name="phone" class="form-control" value="{{ customer.phone }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label>Email</label>
+                    <input type="email" name="email" class="form-control" value="{{ customer.email or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label>CMND/CCCD</label>
+                    <input type="text" name="id_card" class="form-control" value="{{ customer.id_card or '' }}">
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label>Địa chỉ</label>
+                    <textarea name="address" rows="2" class="form-control">{{ customer.address or '' }}</textarea>
+                </div>
+                <div class="col-md-12 mb-3">
+                    <label>Ghi chú</label>
+                    <textarea name="notes" rows="2" class="form-control">{{ customer.notes or '' }}</textarea>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary">Cập nhật</button>
+                <a href="{{ url_for('customers') }}" class="btn btn-secondary">Hủy</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

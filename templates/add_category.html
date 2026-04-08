@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Quản lý danh mục{% endblock %}
+
+{% block content %}
+<h2>Quản lý danh mục sản phẩm</h2>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Thêm danh mục mới</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('add_category') }}">
+                    <input type="text" name="category_name" class="form-control mb-2" required>
+                    <button type="submit" class="btn btn-primary w-100">Thêm</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">Danh sách danh mục</div>
+            <div class="card-body">
+                <div class="row">
+                    {% for cat in categories %}
+                    <div class="col-md-3 mb-2">
+                        <span class="badge bg-secondary p-2">{{ cat.category }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+    <h2>Đơn thuê</h2>
+    <a href="/add-rental" class="btn btn-primary">+ Tạo đơn thuê</a>
+</div>
+<table class="table table-bordered">
+    <thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Sản phẩm</th><th>Ngày thuê</th><th>Ngày trả</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+    <tbody>
+        {% for r in rentals %}
+        <tr>
+            <td>{{ r.rental_code }}</td>
+            <td>{{ r.customer.fullname }}</td>
+            <td>{{ r.product.name }}</td>
+            <td>{{ r.start_date.strftime('%d/%m/%Y') }}</td>
+            <td>{{ r.end_date.strftime('%d/%m/%Y') }}</td>
+            <td>{% if r.status == 'rented' %}Đang thuê{% else %}Đã trả{% endif %}</td>
+            <td>{% if r.status == 'rented' %}<a href="/return-rental/{{ r.id }}" class="btn btn-success btn-sm">Trả hàng</a>{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
