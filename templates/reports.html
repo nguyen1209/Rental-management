@@ -5,97 +5,153 @@
 {% block content %}
 <h2 class="mb-4">Báo cáo thống kê</h2>
 
+<!-- Bộ lọc -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" class="row">
+            <div class="col-md-3">
+                <select name="report_type" class="form-select" onchange="this.form.submit()">
+                    <option value="day" {% if report_type == 'day' %}selected{% endif %}>Theo ngày</option>
+                    <option value="week" {% if report_type == 'week' %}selected{% endif %}>Theo tuần</option>
+                    <option value="month" {% if report_type == 'month' %}selected{% endif %}>Theo tháng</option>
+                    <option value="year" {% if report_type == 'year' %}selected{% endif %}>Theo năm</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <input type="text" name="period" class="form-control" value="{{ period }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary">Xem</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Thống kê nhanh -->
 <div class="row mb-4">
-    <div class="col-md-12">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Xuất báo cáo</h5>
-            </div>
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
             <div class="card-body">
-                <a href="{{ url_for('export_report') }}" class="btn btn-success">
-                    <i class="fas fa-file-excel"></i> Xuất báo cáo doanh thu (Excel)
-                </a>
+                <h3>{{ "{:,.0f}".format(total_revenue|default(0)) }}đ</h3>
+                <p>Tổng doanh thu</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h3>{{ total_rentals|default(0) }}</h3>
+                <p>Số đơn thuê</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h3>{{ unique_customers|default(0) }}</h3>
+                <p>Khách hàng</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <h3>{{ "{:,.0f}".format(avg_per_rental|default(0)) }}đ</h3>
+                <p>Trung bình/đơn</p>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-6">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5>Thống kê doanh thu theo tháng</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr><th>Tháng</th>
-                                <th>Số đơn</th>
-                                <th>Doanh thu</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for stat in monthly_stats %}
-                            <tr>
-                                <td>{{ stat.month }}</td>
-                                <td>{{ stat.total_rentals }}</td>
-                                <td>{{ "{:,.0f}".format(stat.revenue) }} VNĐ</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+<!-- Biểu đồ -->
+<div class="card">
+    <div class="card-header">
+        <h5>Biểu đồ doanh thu theo thời gian</h5>
     </div>
+    <div class="card-body">
+        <canvas id="myChart" style="width:100%; height:400px;"></canvas>
+    </div>
+</div>
+
+<!-- Bảng chi tiết -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h5>Chi tiết doanh thu</h5>
+    </div>
+    <div class="card-body">
+        <table class="table table-bordered">
+            <thead>
+                <tr><th>Kỳ</th><th>Doanh thu</th></tr>
+            </thead>
+            <tbody>
+                {% for i in range(labels|length) %}
+                <tr>
+                    <td>{{ labels[i] }}</td>
+                    <td>{{ "{:,.0f}".format(revenue_data[i]) }}đ</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- IMPORT CHART.JS - DÙNG SCRIPT TRUYỀN THỐNG -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<script>
+// Đợi trang load xong
+window.onload = function() {
+    console.log("Trang đã load, bắt đầu vẽ biểu đồ");
     
-    <div class="col-md-6">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5>Thống kê theo danh mục</h5>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr><th>Danh mục</th>
-                                <th>Số đơn</th>
-                                <th>Doanh thu</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for stat in category_stats %}
-                            <tr>
-                                <td>{{ stat.category }}</td>
-                                <td>{{ stat.rental_count }}</td>
-                                <td>{{ "{:,.0f}".format(stat.revenue) }} VNĐ</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row">
-    <div class="col-md-12">
-        <div class="card">
-            <div class="card-header">
-                <h5>Hướng dẫn sử dụng</h5>
-            </div>
-            <div class="card-body">
-                <ul>
-                    <li><strong>Dashboard:</strong> Xem tổng quan hoạt động kinh doanh</li>
-                    <li><strong>Khách hàng:</strong> Quản lý thông tin khách hàng</li>
-                    <li><strong>Sản phẩm:</strong> Quản lý danh mục sản phẩm cho thuê</li>
-                    <li><strong>Đơn thuê:</strong> Tạo và quản lý đơn thuê</li>
-                    <li><strong>Báo cáo:</strong> Xuất báo cáo doanh thu</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</div>
+    const labels = {{ labels|safe }};
+    const data = {{ revenue_data|safe }};
+    
+    console.log("Labels:", labels);
+    console.log("Data:", data);
+    
+    // Kiểm tra xem Chart có tồn tại không
+    if (typeof Chart === 'undefined') {
+        console.error("Chart.js chưa được load!");
+        document.getElementById('myChart').innerHTML = '<p class="text-danger">Lỗi: Chart.js chưa được tải</p>';
+        return;
+    }
+    
+    const canvas = document.getElementById('myChart');
+    if (!canvas) {
+        console.error("Không tìm thấy canvas!");
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Doanh thu (VNĐ)',
+                data: data,
+                backgroundColor: '#667eea',
+                borderColor: '#764ba2',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('vi-VN') + 'đ';
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    console.log("Biểu đồ đã được vẽ!");
+};
+</script>
 {% endblock %}

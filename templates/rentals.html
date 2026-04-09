@@ -1,23 +1,114 @@
 {% extends "base.html" %}
+
+{% block title %}Quản lý đơn thuê{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between mb-3">
-    <h2>Đơn thuê</h2>
-    <a href="/add-rental" class="btn btn-primary">+ Tạo đơn thuê</a>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Quản lý đơn thuê</h2>
+    <div>
+        <a href="{{ url_for('add_rental') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Tạo đơn thuê mới
+        </a>
+        <a href="{{ url_for('clear_rental_history') }}" class="btn btn-danger" 
+           onclick="return confirm('Xóa TẤT CẢ đơn đã trả và đã hủy? Hành động này không thể hoàn tác!')">
+            <i class="fas fa-trash-alt"></i> Xóa lịch sử
+        </a>
+    </div>
 </div>
-<table class="table table-bordered">
-    <thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Sản phẩm</th><th>Ngày thuê</th><th>Ngày trả</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
-    <tbody>
-        {% for r in rentals %}
-        <tr>
-            <td>{{ r.rental_code }}</td>
-            <td>{{ r.customer.fullname }}</td>
-            <td>{{ r.product.name }}</td>
-            <td>{{ r.start_date.strftime('%d/%m/%Y') }}</td>
-            <td>{{ r.end_date.strftime('%d/%m/%Y') }}</td>
-            <td>{% if r.status == 'rented' %}Đang thuê{% else %}Đã trả{% endif %}</td>
-            <td>{% if r.status == 'rented' %}<a href="/return-rental/{{ r.id }}" class="btn btn-success btn-sm">Trả hàng</a>{% endif %}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead class="table-dark">
+            <tr>
+                <th>Mã đơn</th>
+                <th>Khách hàng</th>
+                <th>Sản phẩm</th>
+                <th>Số lượng</th>
+                <th>Ngày thuê</th>
+                <th>Ngày trả</th>
+                <th>Tổng tiền</th>
+                <th>Trạng thái</th>
+                <th>Thao tác</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rental in rentals %}
+            <tr>
+                <td>{{ rental.rental_code }}</td>
+                <td>{{ rental.customer.fullname }}<br>
+                        <small class="text-muted">{{ rental.customer.phone }}</small>
+                </td>
+                <td>{{ rental.product.name }}</td>
+                <td>{{ rental.quantity }}</td>
+                <td>{{ rental.start_date.strftime('%d/%m/%Y') }}</td>
+                <td>{{ rental.end_date.strftime('%d/%m/%Y') }}</td>
+                <td>
+                    <span class="fw-bold text-danger">{{ "{:,.0f}".format(rental.total_price) }}đ</span>
+                </td>
+                <td>
+                    {% if rental.status == 'rented' %}
+                        <span class="badge bg-success">Đang thuê</span>
+                    {% elif rental.status == 'returned' %}
+                        <span class="badge bg-info">Đã trả</span>
+                    {% elif rental.status == 'cancelled' %}
+                        <span class="badge bg-danger">Đã hủy</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{{ rental.status }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <!-- Nút Trả hàng -->
+                    {% if rental.status == 'rented' %}
+                        <a href="{{ url_for('return_rental', id=rental.id) }}" 
+                           class="btn btn-sm btn-success" 
+                           onclick="return confirm('Xác nhận khách đã trả hàng?')">
+                            <i class="fas fa-undo"></i> Trả
+                        </a>
+                    {% endif %}
+                    
+                    <!-- Nút Hủy đơn -->
+                    {% if rental.status == 'rented' %}
+                        <a href="{{ url_for('cancel_rental', id=rental.id) }}" 
+                           class="btn btn-sm btn-danger" 
+                           onclick="return confirm('Hủy đơn thuê này?')">
+                            <i class="fas fa-times"></i> Hủy
+                        </a>
+                    {% endif %}
+                    
+                    <!-- Nút Xóa (chỉ hiện với đơn đã trả hoặc đã hủy) -->
+                    {% if rental.status == 'returned' or rental.status == 'cancelled' %}
+                        <a href="{{ url_for('delete_rental', id=rental.id) }}" 
+                           class="btn btn-sm btn-secondary" 
+                           onclick="return confirm('Xóa đơn thuê {{ rental.rental_code }}?')">
+                            <i class="fas fa-trash-alt"></i> Xóa
+                        </a>
+                    {% endif %}
+                  </td>
+              </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" class="text-center py-5">
+                    <i class="fas fa-file-signature fa-3x mb-2 d-block text-muted"></i>
+                    <p>Chưa có đơn thuê nào. <a href="{{ url_for('add_rental') }}">Tạo đơn thuê đầu tiên</a></p>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot class="table-secondary">
+            <tr>
+                <th colspan="6" class="text-end">Tổng cộng:</th>
+                <th class="text-danger">
+                    {% set ns = namespace(total=0) %}
+                    {% for rental in rentals %}
+                        {% if rental.status != 'cancelled' %}
+                            {% set ns.total = ns.total + (rental.total_price|default(0)) %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ "{:,.0f}".format(ns.total) }}đ
+                </th>
+                <th colspan="2"></th>
+            </tr>
+        </tfoot>
+    </table>
+</div>
 {% endblock %}

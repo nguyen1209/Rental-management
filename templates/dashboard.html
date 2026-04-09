@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<div data-aos="fade-up"></div>
 <h2>Dashboard</h2>
 <div class="row mt-4">
     <div class="col-md-3">
@@ -34,16 +35,4 @@
             </div>
         </div>
     </div>
-</div>
-<div class="row mt-4">
-    <div class="col-md-4">
-        <a href="/customers" class="btn btn-primary w-100">Quản lý khách hàng</a>
-    </div>
-    <div class="col-md-4">
-        <a href="/products" class="btn btn-success w-100">Quản lý sản phẩm</a>
-    </div>
-    <div class="col-md-4">
-        <a href="/rentals" class="btn btn-info w-100">Quản lý đơn thuê</a>
-    </div>
-</div>
 {% endblock %}

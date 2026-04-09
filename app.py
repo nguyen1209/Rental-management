@@ -6,6 +6,7 @@ from datetime import datetime
 from models import db, Admin, Customer, Product, Rental
 import os
 from werkzeug.utils import secure_filename
+import calendar
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret-key-12345'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///rental.db'
@@ -99,7 +100,259 @@ def logout():
     logout_user()
     flash('Đã đăng xuất', 'info')
     return redirect(url_for('login'))
+from datetime import datetime, timedelta
+import pandas as pd
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from flask import send_file, Response
 
+
+@app.route('/reports')
+@login_required
+def reports():
+    # Lấy tham số từ request
+    report_type = request.args.get('report_type', 'month')
+    period = request.args.get('period', datetime.now().strftime('%Y-%m'))
+    
+    # Xác định khoảng thời gian
+    today = datetime.now()
+    if report_type == 'day':
+        if period:
+            start_date = datetime.strptime(period, '%Y-%m-%d')
+            end_date = start_date + timedelta(days=1)
+            labels = [start_date.strftime('%d/%m/%Y')]
+            revenue_data = [get_revenue_by_date_range(start_date, end_date)]
+        else:
+            start_date = today.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
+            labels = [start_date.strftime('%d/%m/%Y')]
+            revenue_data = [get_revenue_by_date_range(start_date, end_date)]
+    
+    elif report_type == 'week':
+        if period:
+            start_date = datetime.strptime(period, '%Y-%m-%d')
+        else:
+            start_date = today - timedelta(days=today.weekday())
+        labels = []
+        revenue_data = []
+        for i in range(7):
+            day_start = start_date + timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+            labels.append(day_start.strftime('%d/%m'))
+            revenue_data.append(get_revenue_by_date_range(day_start, day_end))
+        end_date = start_date + timedelta(days=7)
+    
+    elif report_type == 'year':
+        year = int(period.split('-')[0]) if period else today.year
+        labels = [f'Tháng {i}' for i in range(1, 13)]
+        revenue_data = []
+        for month in range(1, 13):
+            start_date = datetime(year, month, 1)
+            if month == 12:
+                end_date = datetime(year + 1, 1, 1)
+            else:
+                end_date = datetime(year, month + 1, 1)
+            revenue_data.append(get_revenue_by_date_range(start_date, end_date))
+        start_date = datetime(year, 1, 1)
+        end_date = datetime(year, 12, 31)
+    
+    else:  # month
+        if period:
+            year, month= map(int, period.split('-'))
+        else:
+            year, month = today.year, today.month
+        start_date = datetime(year, month, 1)
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1)
+        else:
+            end_date = datetime(year, month + 1, 1)
+        labels = [f'Tuần {i+1}' for i in range(4)]
+        revenue_data = []
+        for week in range(4):
+            week_start = start_date + timedelta(days=week*7)
+            week_end = min(week_start + timedelta(days=7), end_date)
+            revenue_data.append(get_revenue_by_date_range(week_start, week_end))
+    
+    # Tính tổng doanh thu
+    total_revenue = sum(revenue_data)
+    total_rentals = Rental.query.filter(
+        Rental.status == 'returned',
+        Rental.actual_return_date >= start_date,
+        Rental.actual_return_date < end_date
+    ).count()
+    
+    unique_customers = db.session.query(Rental.customer_id).filter(
+        Rental.status == 'returned',
+        Rental.actual_return_date >= start_date,
+        Rental.actual_return_date < end_date
+    ).distinct().count()
+    
+    avg_per_rental = total_revenue / total_rentals if total_rentals > 0 else 0
+    
+    # Thống kê theo danh mục
+    category_stats = db.session.query(
+        Product.category,
+        db.func.sum(Rental.total_price).label('total')
+    ).join(Rental).filter(
+        Rental.status == 'returned',
+        Rental.actual_return_date >= start_date,
+        Rental.actual_return_date < end_date
+    ).group_by(Product.category).all()
+    
+    category_labels = [stat[0] for stat in category_stats]
+    category_data = [float(stat[1]) for stat in category_stats]
+    
+    # Top sản phẩm cho thuê nhiều nhất
+    top_products = db.session.query(
+        Product.name,
+        db.func.count(Rental.id).label('count')
+    ).join(Rental).filter(
+        Rental.status == 'returned',
+        Rental.actual_return_date >= start_date,
+        Rental.actual_return_date < end_date
+    ).group_by(Product.id).order_by(db.desc('count')).limit(5).all()
+    
+    product_labels = [p[0] for p in top_products]
+    product_rental_counts = [p[1] for p in top_products]
+    
+    # Top khách hàng thân thiết
+    top_customers = db.session.query(
+        Customer,
+        db.func.count(Rental.id).label('rental_count'),
+        db.func.sum(Rental.total_price).label('total_amount')
+    ).join(Rental).filter(
+        Rental.status == 'returned'
+    ).group_by(Customer.id).order_by(db.desc('total_amount')).limit(10).all()
+    
+    top_customers_list = []
+    for customer, rental_count, total_amount in top_customers:
+        top_customers_list.append({
+            'fullname': customer.fullname,
+            'phone': customer.phone,
+            'rental_count': rental_count,
+            'total_amount': float(total_amount)
+        })
+    
+    return render_template('reports.html',
+                         report_type=report_type,
+                         period=period,
+                         start_date=start_date.strftime('%d/%m/%Y'),
+                         end_date=end_date.strftime('%d/%m/%Y'),
+                         total_revenue=total_revenue,
+                         total_rentals=total_rentals,
+                         unique_customers=unique_customers,
+                         avg_per_rental=avg_per_rental,
+                         labels=labels,
+                         revenue_data=revenue_data,
+                         category_labels=category_labels,
+                         category_data=category_data,
+                         product_labels=product_labels,
+                         product_rental_counts=product_rental_counts,
+                         top_customers=top_customers_list)
+                     
+
+def get_revenue_by_date_range(start_date, end_date):
+    """Tính doanh thu trong khoảng thời gian"""
+    total = db.session.query(db.func.sum(Rental.total_price)).filter(
+        Rental.status == 'returned',
+        Rental.actual_return_date >= start_date,
+        Rental.actual_return_date < end_date
+    ).scalar()
+    return float(total) if total else 0
+
+@app.route('/export-excel')
+@login_required
+def export_excel():
+    """Xuất báo cáo ra file Excel"""
+    report_type = request.args.get('report_type', 'month')
+    period = request.args.get('period', datetime.now().strftime('%Y-%m'))
+    
+    # Lấy dữ liệu tương tự như trong reports
+    # (Code tương tự, lấy dữ liệu và xuất Excel)
+    
+    # Tạo DataFrame
+    data = []
+    rentals = Rental.query.filter(Rental.status == 'returned').all()
+    for rental in rentals:
+        data.append({
+            'Mã đơn': rental.rental_code,
+            'Khách hàng': rental.customer.fullname,
+            'Sản phẩm': rental.product.name,
+            'Số lượng': rental.quantity,
+            'Ngày thuê': rental.rental_date.strftime('%d/%m/%Y'),
+            'Ngày bắt đầu': rental.start_date.strftime('%d/%m/%Y'),
+            'Ngày kết thúc': rental.end_date.strftime('%d/%m/%Y'),
+            'Thành tiền': rental.total_price
+        })
+    
+    df = pd.DataFrame(data)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Doanh thu', index=False)
+    
+    output.seek(0)
+    return send_file(output, 
+                     download_name=f'report_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                     as_attachment=True)
+
+@app.route('/export-pdf')
+@login_required
+def export_pdf():
+    """Xuất báo cáo ra file PDF"""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    
+    # Lấy dữ liệu
+    rentals = Rental.query.filter(Rental.status == 'returned').all()
+    
+    # Tạo file PDF
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30)
+    styles = getSampleStyleSheet()
+    elements = []
+    
+    # Tiêu đề
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#667eea'))
+    elements.append(Paragraph("BÁO CÁO DOANH THU", title_style))
+    elements.append(Spacer(1, 20))
+    
+    # Bảng dữ liệu
+    data = [['Mã đơn', 'Khách hàng', 'Sản phẩm', 'Ngày thuê', 'Thành tiền']]
+    for rental in rentals[:50]:  # Giới hạn 50 dòng cho PDF
+        data.append([
+            rental.rental_code,
+            rental.customer.fullname,
+            rental.product.name,
+            rental.rental_date.strftime('%d/%m/%Y'),
+            f"{rental.total_price:,.0f} VNĐ"
+        ])
+    
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey)
+    ]))
+    
+    elements.append(table)
+    doc.build(elements)
+    buffer.seek(0)
+    
+    return send_file(buffer, 
+                     download_name=f'report_{datetime.now().strftime("%Y%m%d")}.pdf',
+                     as_attachment=True, 
+                     mimetype='application/pdf')
 # Dashboard
 @app.route('/dashboard')
 @login_required
@@ -283,7 +536,101 @@ def return_rental(id):
     db.session.commit()
     flash('Đã xác nhận trả hàng!', 'success')
     return redirect(url_for('rentals'))
-
+@app.route('/rental-detail/<int:id>')
+@login_required
+def rental_detail(id):
+    rental = Rental.query.get_or_404(id)
+    return render_template('rental_detail.html', rental=rental)
+@app.route('/delete-rental/<int:id>')
+@login_required
+def delete_rental(id):
+    rental = Rental.query.get_or_404(id)
+    
+    # Chỉ cho phép xóa đơn đã trả hoặc đã hủy
+    if rental.status in ['returned', 'cancelled']:
+        # Lấy thông tin để hiển thị flash message
+        rental_code = rental.rental_code
+        
+        db.session.delete(rental)
+        db.session.commit()
+        flash(f'Đã xóa đơn thuê {rental_code}!', 'success')
+    else:
+        flash('Không thể xóa đơn đang thuê! Hãy trả hàng hoặc hủy trước.', 'danger')
+    
+    return redirect(url_for('rentals'))
+@app.route('/clear-rental-history')
+@login_required
+def clear_rental_history():
+    # Xóa tất cả đơn đã trả và đã hủy
+    returned_count = Rental.query.filter_by(status='returned').count()
+    cancelled_count = Rental.query.filter_by(status='cancelled').count()
+    
+    # Xóa đơn đã trả và đã hủy
+    Rental.query.filter(Rental.status.in_(['returned', 'cancelled'])).delete()
+    db.session.commit()
+    
+    total_deleted = returned_count + cancelled_count
+    if total_deleted > 0:
+        flash(f'Đã xóa {total_deleted} đơn thuê (đã trả: {returned_count}, đã hủy: {cancelled_count})!', 'success')
+    else:
+        flash('Không có đơn thuê nào để xóa!', 'info')
+    
+    return redirect(url_for('rentals'))@app.route('/clear-rental-history')
+@login_required
+def clear_rental_history():
+    # Xóa tất cả đơn đã trả và đã hủy
+    returned_count = Rental.query.filter_by(status='returned').count()
+    cancelled_count = Rental.query.filter_by(status='cancelled').count()
+    
+    # Xóa đơn đã trả và đã hủy
+    Rental.query.filter(Rental.status.in_(['returned', 'cancelled'])).delete()
+    db.session.commit()
+    
+    total_deleted = returned_count + cancelled_count
+    if total_deleted > 0:
+        flash(f'Đã xóa {total_deleted} đơn thuê (đã trả: {returned_count}, đã hủy: {cancelled_count})!', 'success')
+    else:
+        flash('Không có đơn thuê nào để xóa!', 'info')
+    
+    return redirect(url_for('rentals'))@app.route('/clear-rental-history')
+@login_required
+def clear_rental_history():
+    # Xóa tất cả đơn đã trả và đã hủy
+    returned_count = Rental.query.filter_by(status='returned').count()
+    cancelled_count = Rental.query.filter_by(status='cancelled').count()
+    
+    # Xóa đơn đã trả và đã hủy
+    Rental.query.filter(Rental.status.in_(['returned', 'cancelled'])).delete()
+    db.session.commit()
+    
+    total_deleted = returned_count + cancelled_count
+    if total_deleted > 0:
+        flash(f'Đã xóa {total_deleted} đơn thuê (đã trả: {returned_count}, đã hủy: {cancelled_count})!', 'success')
+    else:
+        flash('Không có đơn thuê nào để xóa!', 'info')
+    
+    return redirect(url_for('rentals'))
+@app.route('/cancel-rental/<int:id>')
+@login_required
+def cancel_rental(id):
+    rental = Rental.query.get_or_404(id)
+    
+    # Chỉ hủy đơn đang thuê
+    if rental.status == 'rented':
+        rental.status = 'cancelled'
+        
+        # Trả lại số lượng sản phẩm
+        product = Product.query.get(rental.product_id)
+        if product:
+            product.quantity += rental.quantity
+            product.available_quantity += rental.quantity
+        
+        db.session.commit()
+        flash(f'Đã hủy đơn thuê {rental.rental_code}!', 'success')
+    else:
+        flash('Không thể hủy đơn thuê này!', 'danger')
+    
+    return redirect(url_for('rentals'))
 # Tạo database và dữ liệu mẫu
 def init_db():
     with app.app_context():
