@@ -616,22 +616,6 @@ def init_db():
             )
             db.session.add(admin)
         
-        if Customer.query.count() == 0:
-            customers = [
-                Customer(fullname='Nguyễn Văn A', phone='0901234567', email='a@gmail.com', address='Hà Nội'),
-                Customer(fullname='Trần Thị B', phone='0912345678', email='b@gmail.com', address='TP HCM'),
-            ]
-            for c in customers:
-                db.session.add(c)
-        
-        if Product.query.count() == 0:
-            products = [
-                Product(name='Guitar', category='Nhạc cụ', price_per_day=150000, quantity=5, available_quantity=5),
-                Product(name='Micro', category='Âm thanh', price_per_day=200000, quantity=3, available_quantity=3),
-                Product(name='Loa kéo', category='Âm thanh', price_per_day=300000, quantity=2, available_quantity=2),
-            ]
-            for p in products:
-                db.session.add(p)
         
         db.session.commit()
         print("Database created successfully!")
