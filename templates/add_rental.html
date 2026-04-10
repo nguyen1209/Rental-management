@@ -7,43 +7,64 @@
 
 <div class="card">
     <div class="card-body">
-        <form method="POST">
+        <form method="POST" id="rentalForm">
             <div class="row">
                 <div class="col-md-6 mb-3">
-                    <label>Chọn khách hàng *</label>
+                    <label class="form-label">Chọn khách hàng *</label>
                     <select name="customer_id" class="form-select" required>
-                        <option value="">Chọn khách hàng</option>
-                        {% for customer in customers %}
-                        <option value="{{ customer.id }}">{{ customer.fullname }} - {{ customer.phone }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-6 mb-3">
-                    <label>Chọn sản phẩm *</label>
-                    <select name="product_id" class="form-select" required>
-                        <option value="">Chọn sản phẩm</option>
-                        {% for product in products %}
-                        <option value="{{ product.id }}">{{ product.name }} - {{ "{:,.0f}".format(product.price_per_day) }} VNĐ/ngày (Còn: {{ product.available_quantity }})</option>
+                        <option value="">-- Chọn khách hàng --</option>
+                        {% for c in customers %}
+                        <option value="{{ c.id }}">{{ c.fullname }} - {{ c.phone }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-3 mb-3">
-                    <label>Số lượng *</label>
-                    <input type="number" name="quantity" class="form-control" value="1" min="1" required>
-                </div>
-                <div class="col-md-3 mb-3">
-                    <label>Ngày bắt đầu *</label>
+                    <label class="form-label">Ngày bắt đầu *</label>
                     <input type="date" name="start_date" class="form-control" required>
                 </div>
                 <div class="col-md-3 mb-3">
-                    <label>Ngày kết thúc *</label>
+                    <label class="form-label">Ngày kết thúc *</label>
                     <input type="date" name="end_date" class="form-control" required>
                 </div>
-                <div class="col-md-12 mb-3">
-                    <label>Ghi chú</label>
-                    <textarea name="notes" rows="2" class="form-control"></textarea>
+            </div>
+            
+            <hr>
+            <h5 class="mt-3">Danh sách sản phẩm thuê</h5>
+            
+            <div id="products-container">
+                <div class="product-row row mb-2">
+                    <div class="col-md-6">
+                        <select name="product_id[]" class="form-select" required>
+                            <option value="">-- Chọn sản phẩm --</option>
+                            {% for p in products %}
+                            <option value="{{ p.id }}" data-price="{{ p.price_per_day }}">
+                                {{ p.name }} - {{ "{:,.0f}".format(p.price_per_day) }}đ/ngày (còn: {{ p.available_quantity }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="number" name="quantity[]" class="form-control" placeholder="Số lượng" min="1" value="1" required>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" class="btn btn-danger remove-product">Xóa</button>
+                    </div>
                 </div>
             </div>
+            
+            <div class="row mt-2">
+                <div class="col-md-12">
+                    <button type="button" id="add-product" class="btn btn-secondary">+ Thêm sản phẩm</button>
+                </div>
+            </div>
+            
+            <hr>
+            <div class="row">
+                <div class="col-md-12 text-end">
+                    <h4>Tổng tiền: <span id="total-display">0</span>đ</h4>
+                </div>
+            </div>
+            
             <div class="mt-3">
                 <button type="submit" class="btn btn-primary">Tạo đơn thuê</button>
                 <a href="{{ url_for('rentals') }}" class="btn btn-secondary">Hủy</a>
@@ -53,9 +74,61 @@
 </div>
 
 <script>
-    // Tính toán tự động số ngày và tổng tiền
-    document.querySelector('select[name="product_id"]').addEventListener('change', function() {
-        // Có thể thêm tính năng tự động tính giá
+// Thêm dòng sản phẩm mới
+document.getElementById('add-product').addEventListener('click', function() {
+    const container = document.getElementById('products-container');
+    const template = document.querySelector('.product-row').cloneNode(true);
+    template.querySelector('select').value = '';
+    template.querySelector('input').value = '1';
+    container.appendChild(template);
+    
+    // Gắn sự kiện xóa cho nút mới
+    template.querySelector('.remove-product').addEventListener('click', function() {
+        template.remove();
+        calculateTotal();
     });
+    
+    // Gắn sự kiện tính tổng
+    template.querySelector('select').addEventListener('change', calculateTotal);
+    template.querySelector('input').addEventListener('input', calculateTotal);
+});
+
+// Gắn sự kiện xóa cho các nút hiện có
+document.querySelectorAll('.remove-product').forEach(btn => {
+    btn.addEventListener('click', function() {
+        btn.closest('.product-row').remove();
+        calculateTotal();
+    });
+});
+
+// Tính tổng tiền
+function calculateTotal() {
+    const startDate = document.querySelector('input[name="start_date"]').value;
+    const endDate = document.querySelector('input[name="end_date"]').value;
+    
+    if (!startDate || !endDate) return;
+    
+    const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+    if (days <= 0) return;
+    
+    let total = 0;
+    document.querySelectorAll('.product-row').forEach(row => {
+        const select = row.querySelector('select');
+        const quantity = parseInt(row.querySelector('input')?.value) || 0;
+        const price = select.options[select.selectedIndex]?.dataset?.price;
+        
+        if (select.value && quantity > 0 && price) {
+            total += price * days * quantity;
+        }
+    });
+    
+    document.getElementById('total-display').innerText = total.toLocaleString('vi-VN');
+}
+
+// Gắn sự kiện tính tổng khi chọn ngày
+document.querySelector('input[name="start_date"]').addEventListener('change', calculateTotal);
+document.querySelector('input[name="end_date"]').addEventListener('change', calculateTotal);
+document.querySelectorAll('.product-row select').forEach(s => s.addEventListener('change', calculateTotal));
+document.querySelectorAll('.product-row input').forEach(i => i.addEventListener('input', calculateTotal));
 </script>
 {% endblock %}
