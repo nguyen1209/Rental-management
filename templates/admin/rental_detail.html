@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Tạo đơn thuê</h2>
-<form method="POST">
+<form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <select name="customer_id" class="form-control mb-2" required>
         <option value="">Chọn khách hàng</option>
         {% for c in customers %}

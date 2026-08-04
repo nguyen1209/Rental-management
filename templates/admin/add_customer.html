@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Thêm khách hàng</h2>
-<form method="POST">
+<form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="fullname" class="form-control mb-2" placeholder="Họ tên" required>
     <input type="text" name="phone" class="form-control mb-2" placeholder="Số điện thoại" required>
     <input type="email" name="email" class="form-control mb-2" placeholder="Email">

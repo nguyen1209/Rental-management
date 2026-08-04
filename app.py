@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,19 +8,19 @@ import calendar
 import secrets
 import os
 import json
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, text, or_
 
-from models import db, Admin, Customer, Product, Rental, RentalDetail
+from models import db, Admin, Customer, Product, Category, Rental, RentalDetail
 
 app = Flask(__name__)
 
 # Cấu hình
-app.config['SECRET_KEY'] = 'your-secret-key-12345'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///rental.db'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///rental.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Cấu hình upload
-UPLOAD_FOLDER = 'static/uploads'
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'static/uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
@@ -31,8 +31,53 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+@app.context_processor
+def inject_csrf_token():
+    def csrf_token():
+        token = session.get('_csrf_token')
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session['_csrf_token'] = token
+        return token
+    return {'csrf_token': csrf_token}
+
+@app.before_request
+def protect_post_requests():
+    if request.method == 'POST':
+        expected = session.get('_csrf_token', '')
+        supplied = request.form.get('_csrf_token', '') or request.headers.get('X-CSRF-Token', '')
+        if not expected or not supplied or not secrets.compare_digest(expected, supplied):
+            abort(400, description='Yêu cầu không hợp lệ hoặc đã hết hạn. Vui lòng tải lại trang.')
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    return response
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+DEFAULT_CATEGORIES = ['Quần áo', 'Phụ kiện', 'Đạo cụ']
+
+def get_product_categories():
+    managed = [category.name for category in Category.query.order_by(
+        Category.parent_id.asc(), Category.sort_order.asc(), Category.name.asc()).all()]
+    existing = [row[0].strip() for row in db.session.query(Product.category).distinct().all()
+                if row[0] and row[0].strip()]
+    result = DEFAULT_CATEGORIES + managed + existing
+    return list(dict.fromkeys(result))
+
+def category_from_form():
+    category = request.form.get('category', '').strip()
+    if category == '__other__':
+        category = request.form.get('custom_category', '').strip()
+    if not category:
+        raise ValueError('Vui lòng chọn hoặc nhập danh mục sản phẩm!')
+    if not Category.query.filter_by(name=category).first():
+        db.session.add(Category(name=category))
+    return category
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -43,10 +88,222 @@ def load_user(user_id):
 def index():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
+    return redirect(url_for('customer_rent'))
+
+@app.route('/health')
+def health():
+    try:
+        db.session.execute(text('SELECT 1'))
+        return {'status': 'ok'}, 200
+    except Exception:
+        return {'status': 'unhealthy'}, 503
+
+@app.route('/admin')
+def admin():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
+
+@app.route('/rent', methods=['GET', 'POST'])
+def customer_rent():
+    customer_account = Customer.query.get(session.get('customer_id')) if session.get('customer_id') else None
+    search = request.args.get('q', '').strip()
+    selected_category = request.args.get('category', '').strip()
+    sort = request.args.get('sort', 'newest')
+    product_query = Product.query.filter(Product.available_quantity > 0, Product.status == 'active')
+    if search:
+        keyword = f'%{search}%'
+        product_query = product_query.filter(or_(
+            Product.name.ilike(keyword), Product.description.ilike(keyword),
+            Product.category.ilike(keyword)))
+    if selected_category:
+        selected_node = Category.query.filter_by(name=selected_category).first()
+        category_names = [selected_category]
+        if selected_node:
+            category_names.extend(child.name for child in selected_node.children)
+        product_query = product_query.filter(Product.category.in_(category_names))
+    sort_options = {
+        'price_asc': Product.price_per_day.asc(),
+        'price_desc': Product.price_per_day.desc(),
+        'name': Product.name.asc(),
+        'newest': Product.created_at.desc()
+    }
+    products = product_query.order_by(sort_options.get(sort, sort_options['newest'])).all()
+    categories = [row[0] for row in db.session.query(Product.category).filter(
+        Product.status == 'active', Product.category.isnot(None)
+    ).distinct().order_by(Product.category).all()]
+    category_roots = Category.query.filter_by(parent_id=None).order_by(
+        Category.sort_order.asc(), Category.name.asc()).all()
+
+    if request.method == 'POST':
+        if not customer_account:
+            flash('Vui lòng đăng nhập tài khoản khách hàng trước khi đặt thuê!', 'warning')
+            return redirect(url_for('customer_login'))
+        fullname = request.form.get('fullname', '').strip()
+        phone = request.form.get('phone', '').strip()
+        email = request.form.get('email', '').strip()
+        address = request.form.get('address', '').strip()
+        id_card = request.form.get('id_card', '').strip()
+        notes = request.form.get('notes', '').strip()
+
+        try:
+            start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
+            end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d')
+        except Exception:
+            flash('Ngày thuê không hợp lệ!', 'danger')
+            return redirect(url_for('customer_rent'))
+
+        days = (end_date - start_date).days
+        if days <= 0:
+            flash('Ngày kết thúc phải sau ngày bắt đầu!', 'danger')
+            return redirect(url_for('customer_rent'))
+
+        product_ids = request.form.getlist('product_id[]')
+        quantities = request.form.getlist('quantity[]')
+        # Gom các dòng trùng sản phẩm và luôn kiểm tra tồn kho ở máy chủ.
+        cart = {}
+        try:
+            if len(product_ids) != len(quantities):
+                raise ValueError('Giỏ hàng không hợp lệ!')
+            for product_id, raw_quantity in zip(product_ids, quantities):
+                pid = int(product_id)
+                quantity = int(raw_quantity)
+                if quantity <= 0:
+                    raise ValueError('Số lượng thuê phải lớn hơn 0!')
+                cart[pid] = cart.get(pid, 0) + quantity
+        except (TypeError, ValueError) as exc:
+            flash(str(exc) or 'Giỏ hàng không hợp lệ!', 'danger')
+            return redirect(url_for('customer_rent'))
+
+        if not cart:
+            flash('Vui lòng chọn ít nhất một sản phẩm!', 'danger')
+            return redirect(url_for('customer_rent'))
+
+        if not fullname or not phone:
+            flash('Vui lòng nhập họ tên và số điện thoại!', 'danger')
+            return redirect(url_for('customer_rent'))
+
+        customer = customer_account
+        customer.fullname = fullname
+        customer.phone = phone
+        customer.email = email
+        customer.address = address
+        customer.id_card = id_card
+        customer.notes = notes
+
+        db.session.flush()
+
+        rental_code = f"KH{datetime.now().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(2).upper()}"
+        rental = Rental(
+            rental_code=rental_code,
+            customer_id=customer.id,
+            start_date=start_date,
+            end_date=end_date,
+            status='pending'
+        )
+        db.session.add(rental)
+        db.session.flush()
+
+        total_amount = 0
+        try:
+            for product_id, quantity in cart.items():
+                product = Product.query.filter_by(id=product_id, status='active').first()
+                if not product:
+                    raise ValueError('Có sản phẩm không còn khả dụng!')
+
+                if quantity > product.available_quantity:
+                    raise ValueError(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!')
+
+                subtotal = product.price_per_day * days * quantity
+                total_amount += subtotal
+
+                detail = RentalDetail(
+                    rental_id=rental.id,
+                    product_id=product_id,
+                    quantity=quantity,
+                    price_per_day=product.price_per_day,
+                    days=days,
+                    subtotal=subtotal
+                )
+                db.session.add(detail)
+                product.available_quantity -= quantity
+
+            rental.total_amount = total_amount
+            db.session.commit()
+            flash(f'Tạo đơn thuê thành công! Mã: {rental_code} - Tổng tiền: {total_amount:,.0f}đ', 'success')
+            return redirect(url_for('customer_rent'))
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'danger')
+            return redirect(url_for('customer_rent'))
+
+    return render_template('customer/customer_rent.html', products=products, categories=categories,
+                           search=search, selected_category=selected_category,
+                           customer_account=customer_account, sort=sort,
+                           category_roots=category_roots)
+
+@app.route('/customer/register', methods=['GET', 'POST'])
+def customer_register():
+    if session.get('customer_id'):
+        return redirect(url_for('customer_orders'))
+    if request.method == 'POST':
+        fullname = request.form.get('fullname', '').strip()
+        phone = request.form.get('phone', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        if not fullname or not phone or len(password) < 6:
+            flash('Vui lòng nhập đầy đủ thông tin; mật khẩu cần ít nhất 6 ký tự.', 'danger')
+        elif Customer.query.filter_by(phone=phone).first() and Customer.query.filter_by(phone=phone).first().password_hash:
+            flash('Số điện thoại này đã có tài khoản.', 'danger')
+        else:
+            customer = Customer.query.filter_by(phone=phone).first()
+            if customer:
+                customer.fullname = fullname
+                customer.email = email
+                customer.password_hash = generate_password_hash(password)
+            else:
+                customer = Customer(fullname=fullname, phone=phone, email=email,
+                                    password_hash=generate_password_hash(password))
+                db.session.add(customer)
+            db.session.commit()
+            session['customer_id'] = customer.id
+            flash('Tạo tài khoản thành công!', 'success')
+            return redirect(url_for('customer_rent'))
+    return render_template('customer/customer_register.html')
+
+@app.route('/customer/login', methods=['GET', 'POST'])
+def customer_login():
+    if session.get('customer_id'):
+        return redirect(url_for('customer_orders'))
+    if request.method == 'POST':
+        phone = request.form.get('phone', '').strip()
+        customer = Customer.query.filter_by(phone=phone).first()
+        if customer and customer.password_hash and check_password_hash(customer.password_hash, request.form.get('password', '')):
+            session['customer_id'] = customer.id
+            return redirect(url_for('customer_rent'))
+        flash('Số điện thoại hoặc mật khẩu không đúng.', 'danger')
+    return render_template('customer/customer_login.html')
+
+@app.route('/customer/logout')
+def customer_logout():
+    session.pop('customer_id', None)
+    flash('Bạn đã đăng xuất.', 'info')
+    return redirect(url_for('customer_rent'))
+
+@app.route('/customer/orders')
+def customer_orders():
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        flash('Vui lòng đăng nhập để xem lịch sử thuê.', 'warning')
+        return redirect(url_for('customer_login'))
+    customer = Customer.query.get_or_404(customer_id)
+    orders = Rental.query.filter_by(customer_id=customer.id).order_by(Rental.rental_date.desc()).all()
+    return render_template('customer/customer_orders.html', customer=customer, orders=orders)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -60,7 +317,7 @@ def login():
         else:
             flash('Sai tên đăng nhập hoặc mật khẩu!', 'danger')
     
-    return render_template('login.html')
+    return render_template('admin/login.html')
 
 @app.route('/logout')
 @login_required
@@ -76,28 +333,41 @@ def dashboard():
     total_customers = Customer.query.count()
     total_products = Product.query.count()
     total_rentals = Rental.query.count()
-    active_rentals = Rental.query.filter_by(status='rented').count()
+    active_rentals = Rental.query.filter(Rental.status.in_(['pending', 'rented'])).count()
+    total_revenue = db.session.query(func.sum(Rental.total_amount)).filter(
+        Rental.status == 'returned').scalar() or 0
+    low_stock = Product.query.filter(Product.available_quantity <= 2, Product.status == 'active').count()
+    recent_rentals = Rental.query.order_by(Rental.rental_date.desc()).limit(5).all()
     
-    return render_template('dashboard.html', 
+    return render_template('admin/dashboard.html',
                          total_customers=total_customers,
                          total_products=total_products,
                          total_rentals=total_rentals,
-                         active_rentals=active_rentals)
+                         active_rentals=active_rentals, total_revenue=total_revenue,
+                         low_stock=low_stock, recent_rentals=recent_rentals)
 
 # ==================== QUẢN LÝ KHÁCH HÀNG ====================
 @app.route('/customers')
 @login_required
 def customers():
     all_customers = Customer.query.all()
-    return render_template('customers.html', customers=all_customers)
+    return render_template('admin/customers.html', customers=all_customers)
 
 @app.route('/add-customer', methods=['GET', 'POST'])
 @login_required
 def add_customer():
     if request.method == 'POST':
+        fullname = request.form.get('fullname', '').strip()
+        phone = request.form.get('phone', '').strip()
+        if not fullname or not phone:
+            flash('Vui lòng nhập họ tên và số điện thoại!', 'danger')
+            return redirect(url_for('add_customer'))
+        if Customer.query.filter_by(phone=phone).first():
+            flash('Số điện thoại này đã tồn tại!', 'warning')
+            return redirect(url_for('add_customer'))
         customer = Customer(
-            fullname=request.form['fullname'],
-            phone=request.form['phone'],
+            fullname=fullname,
+            phone=phone,
             email=request.form.get('email', ''),
             address=request.form.get('address', '')
         )
@@ -105,12 +375,15 @@ def add_customer():
         db.session.commit()
         flash('Thêm khách hàng thành công!', 'success')
         return redirect(url_for('customers'))
-    return render_template('add_customer.html')
+    return render_template('admin/add_customer.html')
 
-@app.route('/delete-customer/<int:id>')
+@app.route('/delete-customer/<int:id>', methods=['POST'])
 @login_required
 def delete_customer(id):
     customer = Customer.query.get_or_404(id)
+    if customer.rentals:
+        flash('Không thể xóa khách hàng đã có đơn thuê!', 'danger')
+        return redirect(url_for('customers'))
     db.session.delete(customer)
     db.session.commit()
     flash('Xóa khách hàng thành công!', 'success')
@@ -120,8 +393,51 @@ def delete_customer(id):
 @app.route('/products')
 @login_required
 def products():
-    all_products = Product.query.all()
-    return render_template('products.html', products=all_products)
+    selected_category = request.args.get('category', '')
+    query = Product.query
+    if selected_category:
+        query = query.filter_by(category=selected_category)
+
+    all_products = query.all()
+    categories = Product.query.with_entities(Product.category).distinct().all()
+    categories = [{'category': item[0]} for item in categories if item[0]]
+
+    return render_template('admin/products.html', products=all_products, categories=categories, selected_category=selected_category)
+
+@app.route('/categories', methods=['GET', 'POST'])
+@login_required
+def add_category():
+    if request.method == 'POST':
+        name = request.form.get('category_name', '').strip()
+        parent_id = request.form.get('parent_id', '').strip()
+        if not name:
+            flash('Vui lòng nhập tên danh mục!', 'danger')
+        elif Category.query.filter_by(name=name).first():
+            flash('Tên danh mục này đã tồn tại!', 'warning')
+        else:
+            parent = Category.query.get(int(parent_id)) if parent_id else None
+            category = Category(name=name, parent=parent,
+                                sort_order=request.form.get('sort_order', type=int) or 0)
+            db.session.add(category)
+            db.session.commit()
+            flash(f'Đã thêm danh mục “{name}”!', 'success')
+            return redirect(url_for('add_category'))
+    roots = Category.query.filter_by(parent_id=None).order_by(
+        Category.sort_order.asc(), Category.name.asc()).all()
+    return render_template('admin/add_category.html', categories=roots)
+
+@app.route('/delete-category/<int:id>', methods=['POST'])
+@login_required
+def delete_category(id):
+    category = Category.query.get_or_404(id)
+    used_names = [category.name] + [child.name for child in category.children]
+    if Product.query.filter(Product.category.in_(used_names)).first():
+        flash('Không thể xóa danh mục đang có sản phẩm!', 'danger')
+    else:
+        db.session.delete(category)
+        db.session.commit()
+        flash('Đã xóa danh mục!', 'success')
+    return redirect(url_for('add_category'))
 
 @app.route('/add-product', methods=['GET', 'POST'])
 @login_required
@@ -139,14 +455,32 @@ def add_product():
                 file.save(filepath)
                 image_url = url_for('static', filename=f'uploads/{filename}')
         
+        try:
+            category = category_from_form()
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('add_product'))
+
+        try:
+            name = request.form.get('name', '').strip()
+            price_per_day = float(request.form.get('price_per_day', ''))
+            deposit = float(request.form.get('deposit') or 0)
+            quantity = int(request.form.get('quantity', ''))
+            if not name or price_per_day < 0 or deposit < 0 or quantity < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            db.session.rollback()
+            flash('Tên, giá thuê, tiền cọc hoặc số lượng không hợp lệ!', 'danger')
+            return redirect(url_for('add_product'))
+
         product = Product(
-            name=request.form['name'],
-            category=request.form['category'],
+            name=name,
+            category=category,
             description=request.form.get('description', ''),
-            price_per_day=float(request.form['price_per_day']),
-            deposit=float(request.form.get('deposit', 0)),
-            quantity=int(request.form['quantity']),
-            available_quantity=int(request.form['quantity']),
+            price_per_day=price_per_day,
+            deposit=deposit,
+            quantity=quantity,
+            available_quantity=quantity,
             image_url=image_url if image_url else None,
             status='active'
         )
@@ -155,7 +489,7 @@ def add_product():
         flash('Thêm sản phẩm thành công!', 'success')
         return redirect(url_for('products'))
     
-    return render_template('add_product.html')
+    return render_template('admin/add_product.html', categories=get_product_categories())
 
 @app.route('/edit-product/<int:id>', methods=['GET', 'POST'])
 @login_required
@@ -164,11 +498,22 @@ def edit_product(id):
     
     if request.method == 'POST':
         product.name = request.form['name']
-        product.category = request.form['category']
+        try:
+            product.category = category_from_form()
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('edit_product', id=id))
         product.description = request.form.get('description', '')
         product.price_per_day = float(request.form['price_per_day'])
         product.deposit = float(request.form.get('deposit', 0))
-        product.quantity = int(request.form['quantity'])
+        old_quantity = product.quantity
+        new_quantity = int(request.form['quantity'])
+        rented_quantity = max(old_quantity - product.available_quantity, 0)
+        if new_quantity < rented_quantity:
+            flash(f'Không thể giảm kho dưới {rented_quantity} món đang được thuê!', 'danger')
+            return redirect(url_for('edit_product', id=id))
+        product.quantity = new_quantity
+        product.available_quantity = new_quantity - rented_quantity
         
         if 'image' in request.files:
             file = request.files['image']
@@ -193,12 +538,18 @@ def edit_product(id):
         flash('Cập nhật sản phẩm thành công!', 'success')
         return redirect(url_for('products'))
     
-    return render_template('edit_product.html', product=product)
+    return render_template('admin/edit_product.html', product=product,
+                           categories=get_product_categories())
 
-@app.route('/delete-product/<int:id>')
+@app.route('/delete-product/<int:id>', methods=['POST'])
 @login_required
 def delete_product(id):
     product = Product.query.get_or_404(id)
+    if product.rental_details:
+        product.status = 'inactive'
+        db.session.commit()
+        flash('Sản phẩm đã phát sinh đơn thuê nên được chuyển sang ngừng hoạt động thay vì xóa.', 'warning')
+        return redirect(url_for('products'))
     db.session.delete(product)
     db.session.commit()
     flash('Xóa sản phẩm thành công!', 'success')
@@ -208,22 +559,42 @@ def delete_product(id):
 @login_required
 def product_detail(id):
     product = Product.query.get_or_404(id)
-    return render_template('product_detail.html', product=product)
+    return render_template('admin/product_detail.html', product=product)
 
 # ==================== QUẢN LÝ ĐƠN THUÊ ====================
 @app.route('/rentals')
 @login_required
 def rentals():
     all_rentals = Rental.query.order_by(Rental.rental_date.desc()).all()
-    return render_template('rentals.html', rentals=all_rentals)
+    return render_template('admin/rentals.html', rentals=all_rentals)
 
 @app.route('/add-rental', methods=['GET', 'POST'])
 @login_required
 def add_rental():
     if request.method == 'POST':
-        customer_id = int(request.form['customer_id'])
-        start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
-        end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d')
+        customer_mode = request.form.get('customer_mode', 'guest')
+        if customer_mode == 'existing' and request.form.get('customer_id'):
+            customer = Customer.query.get_or_404(int(request.form['customer_id']))
+        else:
+            guest_name = request.form.get('guest_name', '').strip()
+            guest_phone = request.form.get('guest_phone', '').strip()
+            if not guest_name or not guest_phone:
+                flash('Khách vãng lai cần có họ tên và số điện thoại!', 'danger')
+                return redirect(url_for('add_rental'))
+            customer = Customer.query.filter_by(phone=guest_phone).first()
+            if customer:
+                customer.fullname = guest_name
+            else:
+                customer = Customer(fullname=guest_name, phone=guest_phone)
+                db.session.add(customer)
+                db.session.flush()
+
+        try:
+            start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
+            end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d')
+        except (KeyError, ValueError):
+            flash('Ngày thuê không hợp lệ!', 'danger')
+            return redirect(url_for('add_rental'))
         
         days = (end_date - start_date).days
         if days <= 0:
@@ -232,42 +603,79 @@ def add_rental():
         
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
+        item_start_dates = request.form.getlist('item_start_date[]')
+        item_end_dates = request.form.getlist('item_end_date[]')
         
-        if not product_ids:
+        if not product_ids or len(product_ids) != len(quantities):
             flash('Vui lòng chọn ít nhất 1 sản phẩm!', 'danger')
             return redirect(url_for('add_rental'))
+        try:
+            product_ids = [int(value) for value in product_ids]
+            quantities = [int(value) for value in quantities]
+            if any(quantity <= 0 for quantity in quantities):
+                raise ValueError
+        except (TypeError, ValueError):
+            flash('Danh sách sản phẩm hoặc số lượng không hợp lệ!', 'danger')
+            return redirect(url_for('add_rental'))
         
-        rental_code = f"HD{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        rental_code = f"HD{datetime.now().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(2).upper()}"
         
         rental = Rental(
             rental_code=rental_code,
-            customer_id=customer_id,
+            customer_id=customer.id,
             start_date=start_date,
             end_date=end_date,
-            status='rented'
+            status='pending'
         )
         db.session.add(rental)
         db.session.flush()
         
         total_amount = 0
+        schedule_start = start_date
+        schedule_end = end_date
         
         for i in range(len(product_ids)):
-            product_id = int(product_ids[i])
-            quantity = int(quantities[i])
-            
-            if quantity <= 0:
-                continue
+            product_id = product_ids[i]
+            quantity = quantities[i]
                 
             product = Product.query.get(product_id)
-            if not product:
-                continue
+            if not product or product.status != 'active':
+                flash('Có sản phẩm không còn khả dụng!', 'danger')
+                db.session.rollback()
+                return redirect(url_for('add_rental'))
             
             if quantity > product.available_quantity:
                 flash(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!', 'danger')
                 db.session.rollback()
                 return redirect(url_for('add_rental'))
             
-            subtotal = product.price_per_day * days * quantity
+            detail_start = start_date
+            detail_end = end_date
+            if i < len(item_start_dates) and i < len(item_end_dates):
+                raw_item_start = item_start_dates[i].strip()
+                raw_item_end = item_end_dates[i].strip()
+                if raw_item_start or raw_item_end:
+                    if not raw_item_start or not raw_item_end:
+                        flash(f'Vui lòng chọn đủ ngày nhận và trả riêng cho {product.name}!', 'danger')
+                        db.session.rollback()
+                        return redirect(url_for('add_rental'))
+                    try:
+                        detail_start = datetime.strptime(raw_item_start, '%Y-%m-%d')
+                        detail_end = datetime.strptime(raw_item_end, '%Y-%m-%d')
+                    except ValueError:
+                        flash(f'Ngày thuê riêng của {product.name} không hợp lệ!', 'danger')
+                        db.session.rollback()
+                        return redirect(url_for('add_rental'))
+            detail_days = (detail_end - detail_start).days
+            if detail_days <= 0:
+                flash(f'Ngày trả riêng của {product.name} phải sau ngày nhận!', 'danger')
+                db.session.rollback()
+                return redirect(url_for('add_rental'))
+
+            schedule_start = min(schedule_start, detail_start)
+            schedule_end = max(schedule_end, detail_end)
+
+            subtotal = product.price_per_day * detail_days * quantity
             total_amount += subtotal
             
             detail = RentalDetail(
@@ -275,14 +683,18 @@ def add_rental():
                 product_id=product_id,
                 quantity=quantity,
                 price_per_day=product.price_per_day,
-                days=days,
-                subtotal=subtotal
+                days=detail_days,
+                subtotal=subtotal,
+                start_date=detail_start,
+                end_date=detail_end
             )
             db.session.add(detail)
             
             product.available_quantity -= quantity
         
         rental.total_amount = total_amount
+        rental.start_date = schedule_start
+        rental.end_date = schedule_end
         db.session.commit()
         
         flash(f'Tạo đơn thuê thành công! Mã: {rental_code} - Tổng tiền: {total_amount:,.0f}đ', 'success')
@@ -290,12 +702,15 @@ def add_rental():
     
     customers = Customer.query.all()
     products = Product.query.filter(Product.available_quantity > 0).all()
-    return render_template('add_rental.html', customers=customers, products=products)
+    return render_template('admin/add_rental.html', customers=customers, products=products)
 
-@app.route('/return-rental/<int:id>')
+@app.route('/return-rental/<int:id>', methods=['POST'])
 @login_required
 def return_rental(id):
     rental = Rental.query.get_or_404(id)
+    if rental.status != 'rented':
+        flash('Chỉ có thể nhận trả sau khi đơn đã được soạn xong!', 'danger')
+        return redirect(url_for('rentals'))
     rental.status = 'returned'
     rental.actual_return_date = datetime.now()
     
@@ -303,25 +718,35 @@ def return_rental(id):
         product = Product.query.get(detail.product_id)
         if product:
             product.available_quantity += detail.quantity
-            product.quantity += detail.quantity
     
     db.session.commit()
     flash('Đã xác nhận trả hàng!', 'success')
     return redirect(url_for('rentals'))
 
-@app.route('/cancel-rental/<int:id>')
+@app.route('/prepare-rental/<int:id>', methods=['POST'])
+@login_required
+def prepare_rental(id):
+    rental = Rental.query.get_or_404(id)
+    if rental.status != 'pending':
+        flash('Đơn này không còn ở trạng thái chờ soạn.', 'warning')
+        return redirect(url_for('rentals'))
+    rental.status = 'rented'
+    db.session.commit()
+    flash(f'Đơn {rental.rental_code} đã soạn xong và chuyển sang chờ khách trả!', 'success')
+    return redirect(url_for('rentals'))
+
+@app.route('/cancel-rental/<int:id>', methods=['POST'])
 @login_required
 def cancel_rental(id):
     rental = Rental.query.get_or_404(id)
     
-    if rental.status == 'rented':
+    if rental.status in ['pending', 'rented']:
         rental.status = 'cancelled'
         
         for detail in rental.details:
             product = Product.query.get(detail.product_id)
             if product:
                 product.available_quantity += detail.quantity
-                product.quantity += detail.quantity
         
         db.session.commit()
         flash(f'Đã hủy đơn thuê {rental.rental_code}!', 'success')
@@ -330,7 +755,7 @@ def cancel_rental(id):
     
     return redirect(url_for('rentals'))
 
-@app.route('/delete-rental/<int:id>')
+@app.route('/delete-rental/<int:id>', methods=['POST'])
 @login_required
 def delete_rental(id):
     rental = Rental.query.get_or_404(id)
@@ -360,11 +785,31 @@ def get_revenue_by_date_range(start_date, end_date):
 @app.route('/reports')
 @login_required
 def reports():
-    # Lấy tham số từ request
     report_type = request.args.get('report_type', 'month')
-    period = request.args.get('period', datetime.now().strftime('%Y-%m'))
-    
     today = datetime.now()
+    default_periods = {
+        'day': today.strftime('%Y-%m-%d'),
+        'week': (today - timedelta(days=today.weekday())).strftime('%Y-%m-%d'),
+        'month': today.strftime('%Y-%m'),
+        'year': str(today.year),
+    }
+    if report_type not in default_periods:
+        report_type = 'month'
+    period = request.args.get('period') or default_periods[report_type]
+    try:
+        if report_type in ('day', 'week'):
+            datetime.strptime(period, '%Y-%m-%d')
+        elif report_type == 'month':
+            datetime.strptime(period, '%Y-%m')
+        else:
+            year_value = int(period)
+            if not 2000 <= year_value <= 2100:
+                raise ValueError
+    except (TypeError, ValueError):
+        flash('Khoảng thời gian báo cáo không hợp lệ.', 'danger')
+        return redirect(url_for('reports', report_type=report_type,
+                                period=default_periods[report_type]))
+
     labels = []
     revenue_data = []
     start_date = None
@@ -406,7 +851,7 @@ def reports():
                 month_end = datetime(year, month + 1, 1)
             revenue_data.append(get_revenue_by_date_range(month_start, month_end))
         start_date = datetime(year, 1, 1)
-        end_date = datetime(year, 12, 31)
+        end_date = datetime(year + 1, 1, 1)
         
     else:  # month
         if period and '-' in period:
@@ -501,7 +946,7 @@ def reports():
         product_labels = []
         product_rental_counts = []
     
-    return render_template('reports.html',
+    return render_template('admin/reports.html',
                          report_type=report_type,
                          period=period,
                          start_date=start_date.strftime('%d/%m/%Y') if start_date else '',
@@ -606,21 +1051,36 @@ def export_pdf():
 def init_db():
     with app.app_context():
         db.create_all()
+        # Bổ sung cột cho database cũ mà không làm mất dữ liệu.
+        columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(customer)')).fetchall()]
+        if 'password_hash' not in columns:
+            db.session.execute(text('ALTER TABLE customer ADD COLUMN password_hash VARCHAR(200)'))
+            db.session.commit()
+        detail_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental_detail)')).fetchall()]
+        if 'start_date' not in detail_columns:
+            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN start_date DATETIME'))
+        if 'end_date' not in detail_columns:
+            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN end_date DATETIME'))
+        db.session.commit()
         
-        if not Admin.query.first():
+        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+        existing_admin = Admin.query.filter_by(username=admin_username).first()
+        if not existing_admin:
             admin = Admin(
-                username='admin',
-                password=generate_password_hash('admin123'),
+                username=admin_username,
+                password=generate_password_hash(admin_password),
                 email='admin@example.com',
                 fullname='Administrator'
             )
             db.session.add(admin)
-        
+        elif os.environ.get('ADMIN_PASSWORD'):
+            existing_admin.password = generate_password_hash(admin_password)
         
         db.session.commit()
         print("Database created successfully!")
-        print("Admin account: admin / admin123")
+        print(f"Admin account initialized: {admin_username}")
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True)
+    app.run(debug=os.environ.get('FLASK_DEBUG') == '1')

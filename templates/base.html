@@ -1,54 +1,48 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quản lý cho thuê đồ biểu diễn</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Kho Thuê{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cart.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/search.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/stagewear.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/rentals.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/create-rental.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/item-schedule.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/storefront.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/floating-cart.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hero-image.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/rent-page-fixes.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/category-manager.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/mega-categories.css') }}">
 </head>
-<body>
-    {% if current_user.is_authenticated %}
-    <div class="container-fluid p-0">
-        <div class="row g-0">
-            <!-- Sidebar -->
-            <div class="col-md-1 sidebar">
-                <div class="text-center py-4">
-                    <i class="fas fa-music fa-3x text-white mb-2"></i>
-                    <h5 class="text-white">Quản lý cho thuê</h5>
-                    <small class="text-white-50">{{ current_user.fullname }}</small>
-                </div>
-                <nav class="nav flex-column px-3">
-                    <a class="nav-link" href="{{ url_for('dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-                    <a class="nav-link" href="{{ url_for('customers') }}"><i class="fas fa-users"></i> Khách hàng</a>
-                    <a class="nav-link" href="{{ url_for('products') }}"><i class="fas fa-box"></i> Sản phẩm</a>
-                    <a class="nav-link" href="{{ url_for('rentals') }}"><i class="fas fa-file-signature"></i> Đơn thuê</a>
-                    <a class="nav-link" href="{{ url_for('reports') }}"><i class="fas fa-chart-line"></i> Báo cáo</a>
-                    <hr class="bg-light my-3">
-                    <a class="nav-link" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a>
-                </nav>
-            </div>
-            
-            <!-- Main Content -->
-            <div class="col-md-10 main-content">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }}">{{ message }}</div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-                
-                <!-- NỘI DUNG THAY ĐỔI THEO TRANG -->
-                {% block content %}{% endblock %}
-            </div>
-        </div>
-    </div>
-    {% else %}
-        
-    {% endif %}
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+<body class="{{ 'admin-body' if current_user.is_authenticated else 'store-body' }}">
+{% if current_user.is_authenticated %}
+<div class="admin-shell">
+  <aside class="sidebar">
+    <a class="admin-brand" href="{{ url_for('dashboard') }}"><span class="brand-mark"><i class="fa-solid fa-box-open"></i></span><span>KhoThuê<small>Quản trị cửa hàng</small></span></a>
+    <nav>
+      <a href="{{ url_for('dashboard') }}"><i class="fa-solid fa-chart-pie"></i>Tổng quan</a>
+      <a href="{{ url_for('products') }}"><i class="fa-solid fa-boxes-stacked"></i>Kho sản phẩm</a>
+      <a href="{{ url_for('add_category') }}"><i class="fa-solid fa-layer-group"></i>Danh mục</a>
+      <a href="{{ url_for('rentals') }}"><i class="fa-solid fa-receipt"></i>Đơn thuê</a>
+      <a href="{{ url_for('customers') }}"><i class="fa-solid fa-users"></i>Khách hàng</a>
+      <a href="{{ url_for('reports') }}"><i class="fa-solid fa-chart-line"></i>Doanh thu</a>
+    </nav>
+    <div class="sidebar-foot"><a href="{{ url_for('customer_rent') }}"><i class="fa-solid fa-store"></i>Xem cửa hàng</a><a href="{{ url_for('logout') }}"><i class="fa-solid fa-arrow-right-from-bracket"></i>Đăng xuất</a></div>
+  </aside>
+  <main class="main-content"><div class="admin-top"><div><small>Xin chào,</small><strong>{{ current_user.fullname }}</strong></div><span class="avatar">{{ current_user.fullname[:1] }}</span></div>
+{% else %}
+  <main>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-wrap">{% for category,message in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show">{{ message }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}{% endwith %}
+{% block content %}{% endblock %}
+  </main>
+{% if current_user.is_authenticated %}</div>{% endif %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body></html>

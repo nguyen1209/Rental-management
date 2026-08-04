@@ -7,7 +7,7 @@
 
 <div class="card">
     <div class="card-body">
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label>Tên sản phẩm *</label>
@@ -15,7 +15,11 @@
                 </div>
                 <div class="col-md-6 mb-3">
                     <label>Danh mục *</label>
-                    <input type="text" name="category" class="form-control" value="{{ product.category }}" required>
+                    <select name="category" id="categorySelect" class="form-select" required onchange="toggleCustomCategory()">
+                        {% for category in categories %}<option value="{{ category }}" {{ 'selected' if category == product.category }}>{{ category }}</option>{% endfor %}
+                        <option value="__other__">+ Thêm danh mục khác</option>
+                    </select>
+                    <div id="customCategoryWrap" class="mt-2" hidden><input type="text" name="custom_category" id="customCategory" class="form-control" placeholder="Nhập tên danh mục mới"></div>
                 </div>
                 <div class="col-md-12 mb-3">
                     <label>Mô tả</label>
@@ -34,7 +38,7 @@
                     <input type="number" name="quantity" class="form-control" value="{{ product.quantity }}" required>
                 </div>
                 
-                <!-- Hiển thị ảnh hiện tại -->
+                f!-- Hiển thị ảnh hiện tại -->
                 {% if product.image_url %}
                 <div class="col-md-12 mb-3">
                     <label>Ảnh hiện tại:</label>
@@ -45,7 +49,7 @@
                 </div>
                 {% endif %}
                 
-                <!-- Upload ảnh mới -->
+                f!-- Upload ảnh mới -->
                 <div class="col-md-12 mb-3">
                     <label>Chọn ảnh mới (để trống nếu không muốn đổi):</label>
                     <input type="file" name="image" class="form-control" accept="image/*">
@@ -63,4 +67,5 @@
         </form>
     </div>
 </div>
+<script>function toggleCustomCategory(){const s=document.getElementById('categorySelect'),w=document.getElementById('customCategoryWrap'),i=document.getElementById('customCategory'),other=s.value==='__other__';w.hidden=!other;i.required=other;if(other)i.focus()}</script>
 {% endblock %}

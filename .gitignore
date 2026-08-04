@@ -1,1 +1,16 @@
-.venv
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+instance/*.db
+data/
+uploads/
+static/uploads/
+.pytest_cache/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

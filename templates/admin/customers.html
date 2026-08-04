@@ -16,7 +16,7 @@
             <td>{{ c.phone }}</td>
             <td>{{ c.email }}</td>
             <td>{{ c.address }}</td>
-            <td><a href="/delete-customer/{{ c.id }}" class="btn btn-danger btn-sm" onclick="return confirm('Xóa?')">Xóa</a></td>
+            <td><form method="post" action="{{ url_for('delete_customer', id=c.id) }}" class="inline-form" onsubmit="return confirm('Xóa khách hàng này?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-danger btn-sm">Xóa</button></form></td>
         </tr>
         {% endfor %}
     </tbody>

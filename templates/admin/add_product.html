@@ -11,7 +11,7 @@
                     <h4 class="mb-0"><i class="fas fa-plus-circle"></i> Thêm sản phẩm mới</h4>
                 </div>
                 <div class="card-body">
-                    <form method="POST" enctype="multipart/form-data">
+                    <form method="POST" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label fw-bold">Tên sản phẩm <span class="text-danger">*</span></label>
@@ -20,9 +20,15 @@
                             
                             <div class="col-md-6 mb-3">
                                 <label class="form-label fw-bold">Danh mục <span class="text-danger">*</span></label>
-                                <input type="text" name="category" class="form-control" required 
-                                       placeholder="VD: Nhạc cụ, Âm thanh, Ánh sáng, Phụ kiện...">
-                                <small class="text-muted">Bạn có thể nhập danh mục tùy ý</small>
+                                <select name="category" id="categorySelect" class="form-select" required onchange="toggleCustomCategory()">
+                                    <option value="">-- Chọn danh mục --</option>
+                                    {% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}
+                                    <option value="__other__">+ Thêm danh mục khác</option>
+                                </select>
+                                <div id="customCategoryWrap" class="mt-2" hidden>
+                                    <input type="text" name="custom_category" id="customCategory" class="form-control" placeholder="Nhập tên danh mục mới">
+                                    <small class="text-muted">Danh mục này sẽ tự xuất hiện ở những lần thêm đồ sau.</small>
+                                </div>
                             </div>
                             
                             <div class="col-12 mb-3">
@@ -53,7 +59,7 @@
                                 <input type="number" name="quantity" class="form-control" value="1" required min="1">
                             </div>
                             
-                            <!-- Phần upload ảnh -->
+                            f!-- Phần upload ảnh -->
                             <div class="col-12 mb-4">
                                 <label class="form-label fw-bold">Hình ảnh sản phẩm</label>
                                 
@@ -81,7 +87,7 @@
                                     </div>
                                 </div>
                                 
-                                <!-- Khung xem trước ảnh -->
+                                f!-- Khung xem trước ảnh -->
                                 <div id="imagePreview" class="mt-3 text-center" style="display: none;">
                                     <div class="border p-3 rounded bg-light">
                                         <label class="form-label fw-bold">Xem trước ảnh:</label>
@@ -140,6 +146,16 @@ function clearPreview() {
     fileInput.value = '';
     previewDiv.style.display = 'none';
     previewImg.src = '#';
+}
+
+function toggleCustomCategory() {
+    const select = document.getElementById('categorySelect');
+    const wrap = document.getElementById('customCategoryWrap');
+    const input = document.getElementById('customCategory');
+    const isOther = select.value === '__other__';
+    wrap.hidden = !isOther;
+    input.required = isOther;
+    if (isOther) input.focus();
 }
 </script>
 

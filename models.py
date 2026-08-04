@@ -20,6 +20,7 @@ class Customer(db.Model):
     address = db.Column(db.String(200))
     id_card = db.Column(db.String(20))
     notes = db.Column(db.Text)
+    password_hash = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     rentals = db.relationship('Rental', backref='customer', lazy=True)
@@ -36,6 +37,15 @@ class Product(db.Model):
     image_url = db.Column(db.String(200))
     status = db.Column(db.String(20), default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Category(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    children = db.relationship('Category', backref=db.backref('parent', remote_side=[id]),
+                               lazy=True, cascade='all, delete-orphan', single_parent=True)
 
 class Rental(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -59,5 +69,7 @@ class RentalDetail(db.Model):
     price_per_day = db.Column(db.Float, nullable=False)
     days = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Float, nullable=False)
+    start_date = db.Column(db.DateTime)
+    end_date = db.Column(db.DateTime)
     
     product = db.relationship('Product', backref='rental_details')

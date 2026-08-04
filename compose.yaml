@@ -1,0 +1,22 @@
+services:
+  web:
+    build: .
+    container_name: phuong-lan-rental
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Create a .env file with SECRET_KEY}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Create a .env file with ADMIN_PASSWORD}
+      DATABASE_URL: sqlite:////app/instance/rental.db
+      UPLOAD_FOLDER: /app/static/uploads
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/instance
+      - ./uploads:/app/static/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

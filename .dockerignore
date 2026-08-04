@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+*.log
+.env
+data
+uploads
+instance
+.venv
+venv
