@@ -1,16 +1,22 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, session, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.wsgi import FileWrapper
 from datetime import datetime, timedelta
 import calendar
 import secrets
 import os
 import json
+from urllib.parse import urlencode
+from dotenv import load_dotenv
 from sqlalchemy import func, desc, text, or_
 
 from models import db, Admin, Customer, Product, Category, Rental, RentalDetail
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, '.env'), override=True)
 
 app = Flask(__name__)
 
@@ -24,6 +30,9 @@ UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'static/uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+app.config['BANK_CODE'] = os.environ.get('BANK_CODE', '').strip().upper()
+app.config['BANK_ACCOUNT'] = os.environ.get('BANK_ACCOUNT', '').strip()
+app.config['BANK_ACCOUNT_NAME'] = os.environ.get('BANK_ACCOUNT_NAME', '').strip().upper()
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 db.init_app(app)
@@ -39,7 +48,22 @@ def inject_csrf_token():
             token = secrets.token_urlsafe(32)
             session['_csrf_token'] = token
         return token
-    return {'csrf_token': csrf_token}
+    def bank_transfer(rental=None):
+        info = {
+            'bank_code': app.config['BANK_CODE'],
+            'account': app.config['BANK_ACCOUNT'],
+            'account_name': app.config['BANK_ACCOUNT_NAME'],
+        }
+        if rental and info['bank_code'] and info['account']:
+            query = urlencode({
+                'amount': int(rental.total_amount or 0),
+                'addInfo': rental.rental_code,
+                'accountName': info['account_name'],
+            })
+            info['qr_url'] = (f"https://img.vietqr.io/image/{info['bank_code']}-"
+                              f"{info['account']}-compact2.png?{query}")
+        return info
+    return {'csrf_token': csrf_token, 'bank_transfer': bank_transfer}
 
 @app.before_request
 def protect_post_requests():
@@ -104,13 +128,28 @@ def admin():
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
 
+@app.route('/checkout', methods=['GET', 'POST'], endpoint='customer_checkout')
 @app.route('/rent', methods=['GET', 'POST'])
 def customer_rent():
     customer_account = Customer.query.get(session.get('customer_id')) if session.get('customer_id') else None
     search = request.args.get('q', '').strip()
     selected_category = request.args.get('category', '').strip()
     sort = request.args.get('sort', 'newest')
-    product_query = Product.query.filter(Product.available_quantity > 0, Product.status == 'active')
+    filter_start_str = request.args.get('start_date', '').strip()
+    filter_end_str = request.args.get('end_date', '').strip()
+
+    filter_start = None
+    filter_end = None
+    if filter_start_str and filter_end_str:
+        try:
+            filter_start = datetime.strptime(filter_start_str, '%Y-%m-%d')
+            filter_end = datetime.strptime(filter_end_str, '%Y-%m-%d')
+            if (filter_end - filter_start).days <= 0:
+                filter_start = filter_end = None
+        except ValueError:
+            filter_start = filter_end = None
+
+    product_query = Product.query.filter(Product.status == 'active')
     if search:
         keyword = f'%{search}%'
         product_query = product_query.filter(or_(
@@ -128,12 +167,45 @@ def customer_rent():
         'name': Product.name.asc(),
         'newest': Product.created_at.desc()
     }
-    products = product_query.order_by(sort_options.get(sort, sort_options['newest'])).all()
+    raw_products = product_query.order_by(sort_options.get(sort, sort_options['newest'])).all()
+
+    # Tính toán tồn rảnh hiệu lực theo khoảng thời gian nếu người dùng chọn ngày
+    booked_quantities = {}
+    if filter_start and filter_end:
+        overlapping_details = db.session.query(
+            RentalDetail.product_id,
+            func.sum(RentalDetail.quantity).label('total_booked')
+        ).join(Rental).filter(
+            Rental.status.in_(['pending', 'rented']),
+            func.coalesce(RentalDetail.start_date, Rental.start_date) < filter_end,
+            func.coalesce(RentalDetail.end_date, Rental.end_date) > filter_start
+        ).group_by(RentalDetail.product_id).all()
+        booked_quantities = {row.product_id: (row.total_booked or 0) for row in overlapping_details}
+
+    products = []
+    for p in raw_products:
+        if filter_start and filter_end:
+            booked = booked_quantities.get(p.id, 0)
+            effective_avail = max(0, p.quantity - booked)
+            if effective_avail > 0:
+                p.effective_available_quantity = effective_avail
+                products.append(p)
+        else:
+            if p.available_quantity > 0:
+                p.effective_available_quantity = p.available_quantity
+                products.append(p)
+
     categories = [row[0] for row in db.session.query(Product.category).filter(
         Product.status == 'active', Product.category.isnot(None)
     ).distinct().order_by(Product.category).all()]
     category_roots = Category.query.filter_by(parent_id=None).order_by(
         Category.sort_order.asc(), Category.name.asc()).all()
+
+    if request.endpoint == 'customer_checkout' and request.method == 'GET':
+        if not customer_account:
+            return redirect(url_for('customer_login', next=url_for('customer_checkout')))
+        return render_template('customer/checkout.html', customer_account=customer_account,
+                               filter_start_str=filter_start_str, filter_end_str=filter_end_str)
 
     if request.method == 'POST':
         if not customer_account:
@@ -145,43 +217,59 @@ def customer_rent():
         address = request.form.get('address', '').strip()
         id_card = request.form.get('id_card', '').strip()
         notes = request.form.get('notes', '').strip()
+        payment_method = request.form.get('payment_method', 'cash')
+        if payment_method not in ('cash', 'bank_transfer'):
+            payment_method = 'cash'
 
         try:
             start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
             end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d')
         except Exception:
             flash('Ngày thuê không hợp lệ!', 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
 
         days = (end_date - start_date).days
         if days <= 0:
             flash('Ngày kết thúc phải sau ngày bắt đầu!', 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
 
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
+        item_start_dates = request.form.getlist('item_start_date[]')
+        item_end_dates = request.form.getlist('item_end_date[]')
         # Gom các dòng trùng sản phẩm và luôn kiểm tra tồn kho ở máy chủ.
         cart = {}
+        item_schedules = {}
         try:
             if len(product_ids) != len(quantities):
                 raise ValueError('Giỏ hàng không hợp lệ!')
-            for product_id, raw_quantity in zip(product_ids, quantities):
+            for index, (product_id, raw_quantity) in enumerate(zip(product_ids, quantities)):
                 pid = int(product_id)
                 quantity = int(raw_quantity)
                 if quantity <= 0:
                     raise ValueError('Số lượng thuê phải lớn hơn 0!')
                 cart[pid] = cart.get(pid, 0) + quantity
+                raw_start = item_start_dates[index] if index < len(item_start_dates) else ''
+                raw_end = item_end_dates[index] if index < len(item_end_dates) else ''
+                detail_start = datetime.strptime(raw_start, '%Y-%m-%d') if raw_start else start_date
+                detail_end = datetime.strptime(raw_end, '%Y-%m-%d') if raw_end else end_date
+                if detail_end <= detail_start:
+                    raise ValueError('Ngày trả của từng sản phẩm phải sau ngày nhận!')
+                item_schedules[pid] = (detail_start, detail_end)
         except (TypeError, ValueError) as exc:
             flash(str(exc) or 'Giỏ hàng không hợp lệ!', 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
 
         if not cart:
             flash('Vui lòng chọn ít nhất một sản phẩm!', 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
 
         if not fullname or not phone:
             flash('Vui lòng nhập họ tên và số điện thoại!', 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
+
+        start_date = min(schedule[0] for schedule in item_schedules.values())
+        end_date = max(schedule[1] for schedule in item_schedules.values())
 
         customer = customer_account
         customer.fullname = fullname
@@ -199,7 +287,9 @@ def customer_rent():
             customer_id=customer.id,
             start_date=start_date,
             end_date=end_date,
-            status='pending'
+            status='pending',
+            payment_method=payment_method,
+            payment_status='pending_confirmation' if payment_method == 'bank_transfer' else 'unpaid'
         )
         db.session.add(rental)
         db.session.flush()
@@ -214,7 +304,9 @@ def customer_rent():
                 if quantity > product.available_quantity:
                     raise ValueError(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!')
 
-                subtotal = product.price_per_day * days * quantity
+                detail_start, detail_end = item_schedules[product_id]
+                detail_days = (detail_end - detail_start).days
+                subtotal = product.price_per_day * detail_days * quantity
                 total_amount += subtotal
 
                 detail = RentalDetail(
@@ -222,8 +314,10 @@ def customer_rent():
                     product_id=product_id,
                     quantity=quantity,
                     price_per_day=product.price_per_day,
-                    days=days,
-                    subtotal=subtotal
+                    days=detail_days,
+                    subtotal=subtotal,
+                    start_date=detail_start,
+                    end_date=detail_end
                 )
                 db.session.add(detail)
                 product.available_quantity -= quantity
@@ -231,16 +325,17 @@ def customer_rent():
             rental.total_amount = total_amount
             db.session.commit()
             flash(f'Tạo đơn thuê thành công! Mã: {rental_code} - Tổng tiền: {total_amount:,.0f}đ', 'success')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_orders'))
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), 'danger')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
 
     return render_template('customer/customer_rent.html', products=products, categories=categories,
                            search=search, selected_category=selected_category,
                            customer_account=customer_account, sort=sort,
-                           category_roots=category_roots)
+                           category_roots=category_roots,
+                           filter_start_str=filter_start_str, filter_end_str=filter_end_str)
 
 @app.route('/customer/register', methods=['GET', 'POST'])
 def customer_register():
@@ -268,19 +363,21 @@ def customer_register():
             db.session.commit()
             session['customer_id'] = customer.id
             flash('Tạo tài khoản thành công!', 'success')
-            return redirect(url_for('customer_rent'))
+            return redirect(url_for('customer_checkout'))
     return render_template('customer/customer_register.html')
 
 @app.route('/customer/login', methods=['GET', 'POST'])
 def customer_login():
+    next_page = request.args.get('next', '')
+    destination = url_for('customer_checkout') if next_page == url_for('customer_checkout') else url_for('customer_rent')
     if session.get('customer_id'):
-        return redirect(url_for('customer_orders'))
+        return redirect(destination)
     if request.method == 'POST':
         phone = request.form.get('phone', '').strip()
         customer = Customer.query.filter_by(phone=phone).first()
         if customer and customer.password_hash and check_password_hash(customer.password_hash, request.form.get('password', '')):
             session['customer_id'] = customer.id
-            return redirect(url_for('customer_rent'))
+            return redirect(destination)
         flash('Số điện thoại hoặc mật khẩu không đúng.', 'danger')
     return render_template('customer/customer_login.html')
 
@@ -298,7 +395,10 @@ def customer_orders():
         return redirect(url_for('customer_login'))
     customer = Customer.query.get_or_404(customer_id)
     orders = Rental.query.filter_by(customer_id=customer.id).order_by(Rental.rental_date.desc()).all()
-    return render_template('customer/customer_orders.html', customer=customer, orders=orders)
+    active_orders = [order for order in orders if order.status in ('pending', 'rented')]
+    completed_orders = [order for order in orders if order.status in ('returned', 'cancelled')]
+    return render_template('customer/customer_orders.html', customer=customer, orders=orders,
+                           active_orders=active_orders, completed_orders=completed_orders)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -567,6 +667,29 @@ def product_detail(id):
 def rentals():
     all_rentals = Rental.query.order_by(Rental.rental_date.desc()).all()
     return render_template('admin/rentals.html', rentals=all_rentals)
+
+@app.route('/rentals/<int:id>/invoice')
+@login_required
+def rental_invoice(id):
+    rental = Rental.query.get_or_404(id)
+    return render_template('admin/invoice.html', rental=rental)
+
+@app.route('/rentals/<int:id>/confirm-payment', methods=['POST'])
+@login_required
+def confirm_rental_payment(id):
+    rental = Rental.query.get_or_404(id)
+    if rental.payment_method != 'bank_transfer':
+        flash('Đơn này không chọn thanh toán chuyển khoản.', 'warning')
+    elif rental.payment_status == 'paid':
+        flash('Đơn này đã được xác nhận thanh toán.', 'warning')
+    elif rental.status == 'cancelled':
+        flash('Không thể xác nhận thanh toán cho đơn đã hủy.', 'danger')
+    else:
+        rental.payment_status = 'paid'
+        rental.paid_at = datetime.now()
+        db.session.commit()
+        flash(f'Đã xác nhận thanh toán đơn {rental.rental_code}.', 'success')
+    return redirect(url_for('rentals'))
 
 @app.route('/add-rental', methods=['GET', 'POST'])
 @login_required
@@ -991,9 +1114,11 @@ def export_excel():
         df.to_excel(writer, sheet_name='Doanh thu', index=False)
     
     output.seek(0)
-    return send_file(output, 
-                     download_name=f'report_{datetime.now().strftime("%Y%m%d")}.xlsx',
-                     as_attachment=True)
+    filename = f'report_{datetime.now().strftime("%Y%m%d")}.xlsx'
+    return Response(
+        FileWrapper(output), direct_passthrough=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 @app.route('/export-pdf')
 @login_required
@@ -1042,10 +1167,10 @@ def export_pdf():
     doc.build(elements)
     buffer.seek(0)
     
-    return send_file(buffer, 
-                     download_name=f'report_{datetime.now().strftime("%Y%m%d")}.pdf',
-                     as_attachment=True, 
-                     mimetype='application/pdf')
+    filename = f'report_{datetime.now().strftime("%Y%m%d")}.pdf'
+    return Response(
+        FileWrapper(buffer), direct_passthrough=True, mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 # ==================== KHỞI TẠO DATABASE ====================
 def init_db():
@@ -1061,6 +1186,13 @@ def init_db():
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN start_date DATETIME'))
         if 'end_date' not in detail_columns:
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN end_date DATETIME'))
+        rental_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental)')).fetchall()]
+        if 'payment_method' not in rental_columns:
+            db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_method VARCHAR(20) DEFAULT 'cash'"))
+        if 'payment_status' not in rental_columns:
+            db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_status VARCHAR(30) DEFAULT 'unpaid'"))
+        if 'paid_at' not in rental_columns:
+            db.session.execute(text('ALTER TABLE rental ADD COLUMN paid_at DATETIME'))
         db.session.commit()
         
         admin_username = os.environ.get('ADMIN_USERNAME', 'admin')

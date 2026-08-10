@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hóa đơn & Hợp đồng Cho thuê #{{ rental.rental_code }} - TPBD Phương Lan</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            color: #212529;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .invoice-card {
+            background: #fff;
+            padding: 40px;
+            max-width: 850px;
+            margin: 0 auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .header-title {
+            color: #d97706;
+            font-weight: 700;
+        }
+        .table-invoice th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+        }
+        .terms-box {
+            background-color: #fffbe6;
+            border: 1px solid #ffe58f;
+            border-radius: 6px;
+            padding: 15px;
+            font-size: 0.9rem;
+        }
+        .signature-section {
+            margin-top: 40px;
+        }
+        .signature-box {
+            text-align: center;
+            min-height: 100px;
+        }
+        @media print {
+            body {
+                background: #fff;
+                padding: 0;
+            }
+            .invoice-card {
+                box-shadow: none;
+                padding: 0;
+                max-width: 100%;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container my-3 no-print text-center">
+    <button onclick="window.print()" class="btn btn-primary me-2">
+        <i class="bi bi-printer"></i> 🖨️ In Hóa Đơn / Hợp Đồng A4
+    </button>
+    <a href="{{ url_for('rentals') }}" class="btn btn-outline-secondary">Quay lại danh sách</a>
+</div>
+
+<div class="invoice-card">
+    <!-- BRAND HEADER -->
+    <div class="row border-bottom pb-3 mb-4 align-items-center">
+        <div class="col-8">
+            <h2 class="header-title mb-1">TPBD PHƯƠNG LAN</h2>
+            <p class="mb-0 text-muted">Chuyên cho thuê Trang phục, Phụ kiện & Đạo cụ Biểu diễn</p>
+            <p class="mb-0 text-muted"><strong>Địa chỉ:</strong> 123 Đường TPBD, Phường 1, TP. Thủ Dầu Một</p>
+            <p class="mb-0 text-muted"><strong>Hotline / Zalo:</strong> 0900 123 456</p>
+        </div>
+        <div class="col-4 text-end">
+            <h4 class="text-primary mb-1">HÓA ĐƠN CHO THUÊ</h4>
+            <div class="badge bg-secondary fs-6">Mã: {{ rental.rental_code }}</div>
+            <p class="text-muted mt-2 mb-0" style="font-size: 0.85rem;">
+                Ngày lập: {{ rental.rental_date.strftime('%d/%m/%Y %H:%M') if rental.rental_date else 'N/A' }}
+            </p>
+        </div>
+    </div>
+
+    <!-- CUSTOMER & RENTAL DATES INFO -->
+    <div class="row mb-4">
+        <div class="col-6">
+            <h6 class="text-uppercase fw-bold text-secondary">Thông tin khách hàng (Bên B)</h6>
+            <table class="table table-sm table-borderless mb-0">
+                <tr>
+                    <td class="text-muted" style="width: 110px;">Họ và tên:</td>
+                    <td><strong>{{ rental.customer.fullname if rental.customer else 'Khách vãng lai' }}</strong></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Số điện thoại:</td>
+                    <td><strong>{{ rental.customer.phone if rental.customer else 'N/A' }}</strong></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">CCCD / CMND:</td>
+                    <td>{{ rental.customer.id_card if rental.customer and rental.customer.id_card else 'Chưa cập nhật' }}</td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Địa chỉ:</td>
+                    <td>{{ rental.customer.address if rental.customer and rental.customer.address else 'Chưa cập nhật' }}</td>
+                </tr>
+            </table>
+        </div>
+        <div class="col-6 border-start">
+            <h6 class="text-uppercase fw-bold text-secondary">Thời gian thuê hàng</h6>
+            <table class="table table-sm table-borderless mb-0">
+                <tr>
+                    <td class="text-muted" style="width: 120px;">Ngày nhận đồ:</td>
+                    <td><span class="badge bg-success fs-6">{{ rental.start_date.strftime('%d/%m/%Y') if rental.start_date else 'N/A' }}</span></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Ngày trả đồ:</td>
+                    <td><span class="badge bg-danger fs-6">{{ rental.end_date.strftime('%d/%m/%Y') if rental.end_date else 'N/A' }}</span></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Trạng thái:</td>
+                    <td>
+                        {% if rental.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">Chờ soạn đồ</span>
+                        {% elif rental.status == 'rented' %}
+                            <span class="badge bg-primary">Đang cho thuê</span>
+                        {% elif rental.status == 'returned' %}
+                            <span class="badge bg-success">Đã hoàn trả</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Đã hủy</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- PRODUCTS TABLE -->
+    <h6 class="text-uppercase fw-bold text-secondary mb-2">Chi tiết danh mục sản phẩm thuê</h6>
+    <table class="table table-bordered table-invoice align-middle mb-4">
+        <thead>
+            <tr class="text-center">
+                <th style="width: 40px;">STT</th>
+                <th>Tên sản phẩm / Đạo cụ</th>
+                <th style="width: 90px;">Số lượng</th>
+                <th style="width: 90px;">Số ngày</th>
+                <th style="width: 120px;">Đơn giá / ngày</th>
+                <th style="width: 110px;">Tiền cọc / SP</th>
+                <th style="width: 130px;">Thành tiền</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set total_deposit = namespace(val=0) %}
+            {% for detail in rental.details %}
+                {% set deposit_item = (detail.product.deposit if detail.product and detail.product.deposit else 0) * detail.quantity %}
+                {% set total_deposit.val = total_deposit.val + deposit_item %}
+                <tr>
+                    <td class="text-center">{{ loop.index }}</td>
+                    <td>
+                        <strong>{{ detail.product.name if detail.product else 'Sản phẩm đã xóa' }}</strong>
+                        {% if detail.start_date and detail.end_date %}
+                            <br><small class="text-muted">({{ detail.start_date.strftime('%d/%m') }} - {{ detail.end_date.strftime('%d/%m') }})</small>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">{{ detail.quantity }}</td>
+                    <td class="text-center">{{ detail.days }}</td>
+                    <td class="text-end">{{ "{:,.0f}".format(detail.price_per_day) }}đ</td>
+                    <td class="text-end">{{ "{:,.0f}".format(detail.product.deposit if detail.product and detail.product.deposit else 0) }}đ</td>
+                    <td class="text-end fw-bold">{{ "{:,.0f}".format(detail.subtotal) }}đ</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted">Không có chi tiết sản phẩm.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="6" class="text-end fw-bold">Tổng tiền thuê:</td>
+                <td class="text-end fw-bold text-primary fs-6">{{ "{:,.0f}".format(rental.total_amount) }} VNĐ</td>
+            </tr>
+            <tr>
+                <td colspan="6" class="text-end fw-bold">Tổng tiền đặt cọc (dự kiến):</td>
+                <td class="text-end fw-bold text-danger">{{ "{:,.0f}".format(total_deposit.val) }} VNĐ</td>
+            </tr>
+            <tr class="table-light">
+                <td colspan="6" class="text-end fw-bold fs-6">TỔNG THANH TOÁN (Tiền thuê + Cọc):</td>
+                <td class="text-end fw-bold text-dark fs-5">{{ "{:,.0f}".format(rental.total_amount + total_deposit.val) }} VNĐ</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- TERMS & CONDITIONS -->
+    <div class="terms-box mb-4">
+        <h6 class="fw-bold mb-2">📌 ĐIỀU KHỎAN VÀ QUY ĐỊNH CHO THUỀ:</h6>
+        <ol class="mb-0 ps-3">
+            <li>Bên B (Khách thuê) có trách nhiệm kiểm tra kỹ tình trạng trang phục / đạo cụ trước khi rời cửa hàng.</li>
+            <li>Bên B cần trả đúng hạn ghi trên hợp đồng. Trả trễ hạn sẽ tính thêm phí thuê theo số ngày phát sinh.</li>
+            <li>Không tự ý làm hỏng, cắt may lại, giặt tẩy hóa chất mạnh làm biến dạng trang phục.</li>
+            <li>Trường hợp làm mất hoặc hư hỏng không thể phục hồi, Bên B có trách nhiệm bồi thường theo giá trị sản phẩm.</li>
+            <li>Bên A sẽ hoàn trả lại tiền cọc sau khi kiểm tra đồ và xác nhận đồ đầy đủ, nguyên vẹn.</li>
+        </ol>
+    </div>
+
+    <!-- SIGNATURES -->
+    <div class="row signature-section">
+        <div class="col-6 signature-box">
+            <p class="fw-bold mb-1">ĐẠI DIỆN BÊN CHO THUỀ (BÊN A)</p>
+            <p class="text-muted fs-7 mb-5">(Ký và ghi rõ họ tên)</p>
+            <p class="fw-bold text-uppercase">TPBD PHƯƠNG LAN</p>
+        </div>
+        <div class="col-6 signature-box">
+            <p class="fw-bold mb-1">KHÁCH HÀNG THUỀ (BÊN B)</p>
+            <p class="text-muted fs-7 mb-5">(Ký và ghi rõ họ tên)</p>
+            <p class="fw-bold">{{ rental.customer.fullname if rental.customer else 'Khách hàng' }}</p>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

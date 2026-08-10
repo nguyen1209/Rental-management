@@ -21,8 +21,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/category-manager.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mega-categories.css') }}">
 </head>
-<body class="{{ 'admin-body' if current_user.is_authenticated else 'store-body' }}">
-{% if current_user.is_authenticated %}
+{% set customer_endpoints = ['customer_rent', 'customer_checkout', 'customer_register', 'customer_login', 'customer_logout', 'customer_orders'] %}
+{% set admin_layout = current_user.is_authenticated and request.endpoint not in customer_endpoints %}
+<body class="{{ 'admin-body' if admin_layout else 'store-body' }}">
+{% if admin_layout %}
 <div class="admin-shell">
   <aside class="sidebar">
     <a class="admin-brand" href="{{ url_for('dashboard') }}"><span class="brand-mark"><i class="fa-solid fa-box-open"></i></span><span>KhoThuê<small>Quản trị cửa hàng</small></span></a>
@@ -43,6 +45,6 @@
 {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-wrap">{% for category,message in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show">{{ message }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}{% endwith %}
 {% block content %}{% endblock %}
   </main>
-{% if current_user.is_authenticated %}</div>{% endif %}
+{% if admin_layout %}</div>{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body></html>
