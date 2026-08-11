@@ -1,5 +1,136 @@
-{% extends "base.html" %}{% block title %}Quản lý đơn thuê — TPBD Phương Lan{% endblock %}{% block content %}
-<div class="page-title"><div><span class="eyebrow">VẬN HÀNH ĐƠN THUÊ</span><h1>Quản lý đơn thuê</h1><p>Soạn trang phục, bàn giao và theo dõi hoàn trả theo đúng quy trình.</p></div><a href="{{ url_for('add_rental') }}" class="btn btn-dark"><i class="fa-solid fa-plus"></i> Tạo đơn mới</a></div>
-<div class="rental-flow"><span><i>1</i> Chờ soạn</span><b>→</b><span><i>2</i> Chờ trả</span><b>→</b><span><i>3</i> Đã hoàn tất</span></div>
-<section class="panel rental-panel"><div class="table-responsive"><table class="table"><thead><tr><th>Mã đơn</th><th>Khách hàng</th><th>Trang phục / đạo cụ</th><th>Thời gian thuê</th><th>Tổng tiền</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{% for rental in rentals %}<tr><td><b>{{ rental.rental_code }}</b><small class="order-date">{{ rental.rental_date.strftime('%d/%m/%Y') }}</small></td><td>{{ rental.customer.fullname }}<small class="order-date">{{ rental.customer.phone }}</small></td><td>{% for detail in rental.details %}<div class="rental-item">{{ detail.product.name }} <b>×{{ detail.quantity }}</b></div>{% endfor %}</td><td>{{ rental.start_date.strftime('%d/%m/%Y') }}<br><small>đến {{ rental.end_date.strftime('%d/%m/%Y') }}</small></td><td><strong>{{ "{:,.0f}".format(rental.total_amount) }}đ</strong></td><td>{% if rental.status == 'pending' %}<span class="status pending"><i class="fa-solid fa-box-open"></i> Chờ soạn</span>{% elif rental.status == 'rented' %}<span class="status rented"><i class="fa-regular fa-clock"></i> Chờ trả</span>{% elif rental.status == 'returned' %}<span class="status returned"><i class="fa-solid fa-check"></i> Đã trả</span>{% else %}<span class="status cancelled">Đã hủy</span>{% endif %}</td><td><div class="rental-actions">{% if rental.status == 'pending' %}<form method="post" action="{{ url_for('prepare_rental', id=rental.id) }}" class="inline-form" onsubmit="return confirm('Xác nhận đã soạn đủ trang phục và đạo cụ cho đơn này?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-action prepare"><i class="fa-solid fa-check-double"></i> Đã soạn xong</button></form><form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="inline-form" onsubmit="return confirm('Hủy đơn thuê này?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-action cancel">Hủy đơn</button></form>{% elif rental.status == 'rented' %}<form method="post" action="{{ url_for('return_rental', id=rental.id) }}" class="inline-form" onsubmit="return confirm('Xác nhận khách đã trả đủ đồ?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-action returned"><i class="fa-solid fa-rotate-left"></i> Xác nhận đã trả</button></form><form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="inline-form" onsubmit="return confirm('Hủy đơn thuê này?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-action cancel">Hủy đơn</button></form>{% else %}<form method="post" action="{{ url_for('delete_rental', id=rental.id) }}" class="inline-form" onsubmit="return confirm('Xóa đơn này khỏi hệ thống?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn-action cancel"><i class="fa-regular fa-trash-can"></i> Xóa</button></form>{% endif %}</div></td></tr>{% else %}<tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-receipt"></i><h3>Chưa có đơn thuê</h3><p>Đơn mới sẽ xuất hiện tại đây để bắt đầu soạn.</p></div></td></tr>{% endfor %}</tbody></table></div></section>
+{% extends "base.html" %}
+{% block title %}Quản lý đơn thuê — TPBD Phương Lan{% endblock %}
+
+{% block content %}
+<div class="page-title">
+    <div>
+        <span class="eyebrow">VẬN HÀNH ĐƠN THUÊ</span>
+        <h1>Quản lý đơn thuê</h1>
+        <p>Soạn trang phục, bàn giao và theo dõi hoàn trả theo đúng quy trình.</p>
+    </div>
+    <a href="{{ url_for('add_rental') }}" class="btn btn-dark"><i class="fa-solid fa-plus"></i> Tạo đơn mới</a>
+</div>
+
+<div class="rental-flow">
+    <span><i>1</i> Chờ soạn</span><b>→</b>
+    <span><i>2</i> Chờ trả</span><b>→</b>
+    <span><i>3</i> Đã hoàn tất</span>
+</div>
+
+<section class="panel rental-panel">
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>Mã đơn</th>
+                    <th>Khách hàng</th>
+                    <th>Trang phục / đạo cụ</th>
+                    <th>Thời gian thuê</th>
+                    <th>Tổng tiền</th>
+                    <th>Thanh toán</th>
+                    <th>Trạng thái</th>
+                    <th>Thao tác</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rental in rentals %}
+                <tr>
+                    <td>
+                        <b>{{ rental.rental_code }}</b><br>
+                        <small class="text-muted">{{ rental.rental_date.strftime('%d/%m/%Y %H:%M') if rental.rental_date else 'N/A' }}</small>
+                    </td>
+                    <td>
+                        <strong>{{ rental.customer.fullname if rental.customer else 'Khách vãng lai' }}</strong>
+                        {% if rental.customer and rental.customer.phone %}
+                            <br><small class="text-muted">{{ rental.customer.phone }}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% for detail in rental.details %}
+                            <div class="rental-item mb-1">
+                                {{ detail.product.name if detail.product else 'Sản phẩm đã xóa' }}
+                                <b>×{{ detail.quantity }}</b>
+                            </div>
+                        {% else %}
+                            <span class="text-muted">Không có sản phẩm</span>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {{ rental.start_date.strftime('%d/%m/%Y') if rental.start_date else 'N/A' }}<br>
+                        <small class="text-muted">đến {{ rental.end_date.strftime('%d/%m/%Y') if rental.end_date else 'N/A' }}</small>
+                    </td>
+                    <td>
+                        <strong class="text-primary">{{ "{:,.0f}".format(rental.total_amount) if rental.total_amount else 0 }}đ</strong>
+                    </td>
+                    <td>
+                        {% if rental.payment_method == 'bank_transfer' %}
+                            <small>Chuyển khoản</small><br>
+                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
+                        {% else %}<small>Tại cửa hàng</small><br><span class="badge text-bg-secondary">Chưa thanh toán</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if rental.status == 'pending' %}
+                            <span class="status pending"><i class="fa-solid fa-box-open"></i> Chờ soạn</span>
+                        {% elif rental.status == 'rented' %}
+                            <span class="status rented"><i class="fa-regular fa-clock"></i> Chờ trả</span>
+                        {% elif rental.status == 'returned' %}
+                            <span class="status returned"><i class="fa-solid fa-check"></i> Đã trả</span>
+                        {% else %}
+                            <span class="status cancelled">Đã hủy</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="rental-actions d-flex flex-wrap gap-1">
+                            {% if rental.payment_method == 'bank_transfer' and rental.payment_status != 'paid' and rental.status != 'cancelled' %}
+                                <form method="post" action="{{ url_for('confirm_rental_payment', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận đã nhận đúng số tiền chuyển khoản?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-primary"><i class="fa-solid fa-money-check-dollar"></i> Xác nhận tiền</button>
+                                </form>
+                            {% endif %}
+                            <a href="{{ url_for('rental_invoice', id=rental.id) }}" target="_blank" class="btn btn-sm btn-info text-white" title="In Hóa Đơn A4">
+                                <i class="fa-solid fa-print"></i> In Hóa đơn
+                            </a>
+
+                            {% if rental.status == 'pending' %}
+                                <form method="post" action="{{ url_for('prepare_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận đã soạn đủ trang phục và đạo cụ cho đơn này?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-success"><i class="fa-solid fa-check-double"></i> Đã soạn xong</button>
+                                </form>
+                                <form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Hủy đơn thuê này?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-warning">Hủy đơn</button>
+                                </form>
+                            {% elif rental.status == 'rented' %}
+                                <form method="post" action="{{ url_for('return_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận khách đã trả đủ đồ?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-success"><i class="fa-solid fa-rotate-left"></i> Xác nhận đã trả</button>
+                                </form>
+                                <form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Hủy đơn thuê này?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-warning">Hủy đơn</button>
+                                </form>
+                            {% else %}
+                                <form method="post" action="{{ url_for('delete_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xóa đơn này khỏi hệ thống?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i> Xóa</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state text-center py-4">
+                            <i class="fa-solid fa-receipt fs-1 text-muted mb-2"></i>
+                            <h3>Chưa có đơn thuê</h3>
+                            <p class="text-muted">Đơn mới sẽ xuất hiện tại đây để bắt đầu soạn.</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}

@@ -1,1 +1,70 @@
-{% extends "base.html" %}{% block title %}Lịch sử thuê — KhoThuê{% endblock %}{% block content %}<header class="store-nav"><a class="store-brand" href="{{ url_for('customer_rent') }}"><span class="brand-mark"><i class="fa-solid fa-box-open"></i></span>KhoThuê</a><nav><a href="{{ url_for('customer_rent') }}">Cửa hàng</a><a href="{{ url_for('customer_orders') }}">Lịch sử thuê</a></nav><a class="admin-link" href="{{ url_for('customer_logout') }}">Đăng xuất</a></header><main class="orders-page"><div class="section-head"><div><span class="eyebrow">TÀI KHOẢN CỦA TÔI</span><h1>Lịch sử thuê</h1><p>Xin chào {{ customer.fullname }}, đây là các đơn thuê của bạn.</p></div><a class="submit-order" href="{{ url_for('customer_rent') }}">Thuê thêm đồ</a></div><div class="order-history">{% for order in orders %}<article><div class="order-history-head"><div><small>MÃ ĐƠN</small><b>{{ order.rental_code }}</b></div><div><small>NGÀY ĐẶT</small><b>{{ order.rental_date.strftime('%d/%m/%Y') }}</b></div><span class="status {{ order.status }}">{{ {'rented':'Đang thuê','returned':'Đã trả','cancelled':'Đã hủy'}.get(order.status,order.status) }}</span></div><div class="history-items">{% for detail in order.details %}<div><span><b>{{ detail.product.name }}</b><small>{{ '{:,.0f}'.format(detail.price_per_day) }}đ/ngày × {{ detail.quantity }} món × {{ detail.days }} ngày</small></span><strong>{{ '{:,.0f}'.format(detail.subtotal) }}đ</strong></div>{% endfor %}</div><footer><span>{{ order.start_date.strftime('%d/%m/%Y') }} → {{ order.end_date.strftime('%d/%m/%Y') }}</span><strong>Tổng: {{ '{:,.0f}'.format(order.total_amount) }}đ</strong></footer></article>{% else %}<div class="empty-state"><i class="fa-solid fa-receipt"></i><h3>Bạn chưa có đơn thuê nào</h3><a class="submit-order" href="{{ url_for('customer_rent') }}">Khám phá sản phẩm</a></div>{% endfor %}</div></main>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Lịch sử thuê — KhoThuê{% endblock %}
+{% block content %}
+<header class="store-nav">
+  <a class="store-brand" href="{{ url_for('customer_rent') }}"><span class="brand-mark"><i class="fa-solid fa-box-open"></i></span>KhoThuê</a>
+  <nav><a href="{{ url_for('customer_rent') }}">Cửa hàng</a><a href="{{ url_for('customer_orders') }}">Lịch sử thuê</a></nav>
+  <a class="admin-link" href="{{ url_for('customer_logout') }}">Đăng xuất</a>
+</header>
+
+<main class="orders-page">
+  <div class="section-head">
+    <div><span class="eyebrow">TÀI KHOẢN CỦA TÔI</span><h1>Lịch sử thuê</h1><p>Xin chào {{ customer.fullname }}, theo dõi các đơn thuê của bạn tại đây.</p></div>
+    <a class="submit-order" href="{{ url_for('customer_rent') }}">Thuê thêm đồ</a>
+  </div>
+
+  {% if active_orders %}
+  <section class="orders-group active-orders">
+    <div class="orders-group-title"><div><span class="orders-live-dot"></span><h2>Đơn đang hoạt động</h2></div><b>{{ active_orders|length }}</b></div>
+    <div class="order-history">
+      {% for order in active_orders %}
+      <article class="order-active">
+        <div class="order-history-head">
+          <div><small>MÃ ĐƠN</small><b>{{ order.rental_code }}</b></div>
+          <div><small>NGÀY ĐẶT</small><b>{{ order.rental_date.strftime('%d/%m/%Y') }}</b></div>
+          <span class="status {{ order.status }}">{{ {'pending':'Chờ soạn','rented':'Đang thuê'}.get(order.status, order.status) }}</span>
+        </div>
+
+        {% if order.payment_method == 'bank_transfer' %}
+          {% set bank = bank_transfer(order) %}{% set bank_code = bank.bank_code or 'MB' %}{% set bank_account = bank.account or '0396970191' %}{% set bank_name = bank.account_name or 'NGUYEN THANH NGUYEN' %}
+          <section class="bank-payment">
+            <div><span class="eyebrow">THANH TOÁN CHUYỂN KHOẢN</span><h3>{{ 'Đã xác nhận thanh toán' if order.payment_status == 'paid' else 'Đang chờ cửa hàng xác nhận' }}</h3><p><b>Ngân hàng {{ bank_code }}</b></p><p>Số tài khoản: <strong>{{ bank_account }}</strong></p><p>Chủ tài khoản: <strong>{{ bank_name }}</strong></p><p>Nội dung chuyển khoản: <strong>{{ order.rental_code }}</strong></p><p>Số tiền: <strong>{{ '{:,.0f}'.format(order.total_amount) }}đ</strong></p></div>
+            {% if order.payment_status != 'paid' %}<img src="{{ bank.qr_url or ('https://img.vietqr.io/image/MB-0396970191-compact2.png?amount=' ~ (order.total_amount|int) ~ '&addInfo=' ~ order.rental_code ~ '&accountName=NGUYEN%20THANH%20NGUYEN') }}" alt="QR chuyển khoản cho đơn {{ order.rental_code }}">{% endif %}
+          </section>
+        {% endif %}
+
+        <div class="history-items">{% for detail in order.details %}<div><span><b>{{ detail.product.name }}</b><small>{{ '{:,.0f}'.format(detail.price_per_day) }}đ/ngày × {{ detail.quantity }} món × {{ detail.days }} ngày</small></span><strong>{{ '{:,.0f}'.format(detail.subtotal) }}đ</strong></div>{% endfor %}</div>
+        <footer><span><i class="fa-regular fa-calendar"></i> {{ order.start_date.strftime('%d/%m/%Y') }} → {{ order.end_date.strftime('%d/%m/%Y') }}</span><strong>Tổng: {{ '{:,.0f}'.format(order.total_amount) }}đ</strong></footer>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if completed_orders %}
+  <section class="orders-group completed-orders">
+    <div class="orders-group-title"><div><i class="fa-solid fa-box-archive"></i><h2>Đơn đã hoàn tất</h2></div><b>{{ completed_orders|length }}</b></div>
+    <div class="compact-order-list">
+      {% for order in completed_orders %}
+      <details class="order-compact">
+        <summary>
+          <span class="compact-icon"><i class="fa-solid {{ 'fa-check' if order.status == 'returned' else 'fa-xmark' }}"></i></span>
+          <span class="compact-code"><small>MÃ ĐƠN</small><b>{{ order.rental_code }}</b></span>
+          <span class="compact-date"><small>THỜI GIAN THUÊ</small><b>{{ order.start_date.strftime('%d/%m/%Y') }} → {{ order.end_date.strftime('%d/%m/%Y') }}</b></span>
+          <strong>{{ '{:,.0f}'.format(order.total_amount) }}đ</strong>
+          <span class="status {{ order.status }}">{{ 'Đã trả' if order.status == 'returned' else 'Đã hủy' }}</span>
+          <i class="fa-solid fa-chevron-down compact-chevron"></i>
+        </summary>
+        <div class="compact-details">
+          {% for detail in order.details %}<div><span>{{ detail.product.name }} × {{ detail.quantity }}</span><b>{{ '{:,.0f}'.format(detail.subtotal) }}đ</b></div>{% endfor %}
+          <p>Đặt ngày {{ order.rental_date.strftime('%d/%m/%Y') }}{% if order.payment_status == 'paid' %} · Đã thanh toán{% endif %}</p>
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if not orders %}<div class="empty-state"><i class="fa-solid fa-receipt"></i><h3>Bạn chưa có đơn thuê nào</h3><a class="submit-order" href="{{ url_for('customer_rent') }}">Khám phá sản phẩm</a></div>{% endif %}
+</main>
+{% endblock %}
