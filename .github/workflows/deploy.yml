@@ -76,4 +76,12 @@ jobs:
              git pull --ff-only origin main
              docker compose up --build -d
              docker compose ps
-             curl --fail --silent --show-error http://127.0.0.1:8000/health'
+             for attempt in $(seq 1 30); do
+               if curl --fail --silent --show-error http://127.0.0.1:8000/health; then
+                 exit 0
+               fi
+               echo "Waiting for application health check ($attempt/30)..."
+               sleep 2
+             done
+             docker compose logs --tail=100 web
+             exit 1'
