@@ -400,6 +400,39 @@ def customer_orders():
     return render_template('customer/customer_orders.html', customer=customer, orders=orders,
                            active_orders=active_orders, completed_orders=completed_orders)
 
+@app.route('/customer/orders/<int:id>/payment-proof', methods=['POST'])
+def submit_payment_proof(id):
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        flash('Vui lòng đăng nhập để xác nhận thanh toán.', 'warning')
+        return redirect(url_for('customer_login'))
+    rental = Rental.query.filter_by(id=id, customer_id=customer_id).first_or_404()
+    if rental.payment_method != 'bank_transfer' or rental.status == 'cancelled':
+        abort(400, description='Đơn hàng không hợp lệ để gửi xác nhận thanh toán.')
+    if rental.payment_status == 'paid':
+        flash('Đơn này đã được cửa hàng xác nhận thanh toán.', 'info')
+        return redirect(url_for('customer_orders'))
+
+    receipt = request.files.get('payment_receipt')
+    if not receipt or not receipt.filename:
+        flash('Vui lòng chọn ảnh giao dịch trước khi gửi.', 'danger')
+        return redirect(url_for('customer_orders'))
+    if not allowed_file(receipt.filename) or not (receipt.mimetype or '').startswith('image/'):
+        flash('Ảnh giao dịch phải có định dạng PNG, JPG, JPEG, GIF hoặc WEBP.', 'danger')
+        return redirect(url_for('customer_orders'))
+
+    extension = secure_filename(receipt.filename).rsplit('.', 1)[1].lower()
+    filename = f"receipt_{rental.id}_{secrets.token_hex(8)}.{extension}"
+    receipt_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'payment_receipts')
+    os.makedirs(receipt_folder, exist_ok=True)
+    receipt.save(os.path.join(receipt_folder, filename))
+    rental.payment_receipt_url = url_for('static', filename=f'uploads/payment_receipts/{filename}')
+    rental.payment_submitted_at = datetime.now()
+    rental.payment_status = 'customer_submitted'
+    db.session.commit()
+    flash('Đã gửi ảnh giao dịch. Cửa hàng sẽ kiểm tra và xác nhận sớm.', 'success')
+    return redirect(url_for('customer_orders'))
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -1193,6 +1226,10 @@ def init_db():
             db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_status VARCHAR(30) DEFAULT 'unpaid'"))
         if 'paid_at' not in rental_columns:
             db.session.execute(text('ALTER TABLE rental ADD COLUMN paid_at DATETIME'))
+        if 'payment_receipt_url' not in rental_columns:
+            db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_receipt_url VARCHAR(300)'))
+        if 'payment_submitted_at' not in rental_columns:
+            db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_submitted_at DATETIME'))
         db.session.commit()
         
         admin_username = os.environ.get('ADMIN_USERNAME', 'admin')

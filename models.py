@@ -61,6 +61,8 @@ class Rental(db.Model):
     payment_method = db.Column(db.String(20), default='cash')
     payment_status = db.Column(db.String(30), default='unpaid')
     paid_at = db.Column(db.DateTime)
+    payment_receipt_url = db.Column(db.String(300))
+    payment_submitted_at = db.Column(db.DateTime)
     
     details = db.relationship('RentalDetail', backref='rental', cascade='all, delete-orphan')
 
