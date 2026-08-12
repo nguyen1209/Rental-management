@@ -1,4 +1,5 @@
 import os
+import io
 import tempfile
 import unittest
 
@@ -131,6 +132,33 @@ class RentalAppTestCase(unittest.TestCase):
             rental = db.session.get(Rental, rental_id)
             self.assertEqual(rental.payment_status, 'paid')
             self.assertIsNotNone(rental.paid_at)
+
+    def test_customer_can_upload_bank_transfer_receipt(self):
+        product_id = self.create_product()
+        self.client.post('/customer/register', data={
+            '_csrf_token': self.csrf('/customer/register'), 'fullname': 'Khách Gửi Biên Lai',
+            'phone': '0900000010', 'email': 'receipt@example.com', 'password': 'secret1'})
+        self.client.post('/checkout', data={
+            '_csrf_token': self.csrf('/checkout'), 'fullname': 'Khách Gửi Biên Lai',
+            'phone': '0900000010', 'start_date': '2026-08-10', 'end_date': '2026-08-12',
+            'payment_method': 'bank_transfer',
+            'product_id[]': [str(product_id)], 'quantity[]': ['1']})
+        with app.app_context():
+            rental_id = Rental.query.one().id
+        with tempfile.TemporaryDirectory() as upload_folder:
+            previous_upload_folder = app.config['UPLOAD_FOLDER']
+            app.config['UPLOAD_FOLDER'] = upload_folder
+            response = self.client.post(f'/customer/orders/{rental_id}/payment-proof', data={
+                '_csrf_token': self.csrf('/customer/orders'),
+                'payment_receipt': (io.BytesIO(b'fake-image'), 'receipt.png')},
+                content_type='multipart/form-data')
+            app.config['UPLOAD_FOLDER'] = previous_upload_folder
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            rental = db.session.get(Rental, rental_id)
+            self.assertEqual(rental.payment_status, 'customer_submitted')
+            self.assertIn('/payment_receipts/receipt_', rental.payment_receipt_url)
+            self.assertIsNotNone(rental.payment_submitted_at)
 
     def test_admin_order_lifecycle_restores_inventory(self):
         product_id = self.create_product(quantity=2)

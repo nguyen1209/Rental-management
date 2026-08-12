@@ -65,7 +65,8 @@
                     <td>
                         {% if rental.payment_method == 'bank_transfer' %}
                             <small>Chuyển khoản</small><br>
-                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
+                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% elif rental.payment_status == 'customer_submitted' %}<span class="badge text-bg-info">Khách đã gửi giao dịch</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
+                            {% if rental.payment_receipt_url %}<br><a href="{{ rental.payment_receipt_url }}" target="_blank" class="receipt-admin-link"><img src="{{ rental.payment_receipt_url }}" alt="Ảnh giao dịch"><span>Xem giao dịch</span></a>{% endif %}
                         {% else %}<small>Tại cửa hàng</small><br><span class="badge text-bg-secondary">Chưa thanh toán</span>{% endif %}
                     </td>
                     <td>
