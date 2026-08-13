@@ -74,7 +74,9 @@ jobs:
              cd /home/thanhnguyen12092003/Rental-management
              git switch main
              git pull --ff-only origin main
-             docker compose up --build -d
+             docker compose build web
+             docker compose run --rm --no-deps web python -c "from app import init_db; init_db()"
+             docker compose up -d --no-deps web
              docker compose ps
              for attempt in $(seq 1 45); do
                if curl --fail --silent --show-error http://127.0.0.1:8000/health; then
@@ -87,4 +89,5 @@ jobs:
              echo "Application did not become healthy in time."
              docker compose ps
              docker compose logs --tail=100 web
+             docker compose restart web
              exit 1'
