@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/rent-page-fixes.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/category-manager.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mega-categories.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/typography.css') }}">
 </head>
 {% set customer_endpoints = ['customer_rent', 'customer_checkout', 'customer_register', 'customer_login', 'customer_logout', 'customer_orders'] %}
 {% set admin_layout = current_user.is_authenticated and request.endpoint not in customer_endpoints %}

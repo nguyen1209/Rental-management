@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root{
+  --font-body:'Manrope','Segoe UI',Arial,sans-serif;
+  --font-display:'Lora',Georgia,serif;
+}
+
+html,body,button,input,select,textarea,.btn,.table{
+  font-family:var(--font-body);
+}
+
+body{
+  font-weight:400;
+  line-height:1.6;
+  letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+h1,h2,h3,
+.store-brand,
+.brand-monogram,
+.hero-copy h1,
+.section-head h2,
+.how h2,
+.order-intro h2,
+.product-info h3,
+.orders-group-title h2,
+.checkout-heading h1,
+.checkout-block-title h2,
+.checkout-grand strong,
+.summary-total strong,
+.mega-root,
+.runway-frame strong,
+.runway-number{
+  font-family:var(--font-display);
+  font-weight:600;
+  letter-spacing:-.025em;
+}
+
+p,li,label,input,select,textarea,.table,.status,.btn,button{
+  letter-spacing:-.008em;
+}
+
+.eyebrow,.store-brand small,.product-info>small,.table th{
+  letter-spacing:.12em;
+}
+
+input,select,textarea,button{
+  font-weight:500;
+}
+
+strong,b,.btn,button{
+  font-weight:700;
+}
