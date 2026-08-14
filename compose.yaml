@@ -20,3 +20,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: phuong-lan-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      web:
+        condition: service_healthy
