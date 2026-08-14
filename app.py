@@ -83,6 +83,20 @@ def add_security_headers(response):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def product_image_from_request(current_url=None):
+    """Save a camera/gallery upload, falling back to an explicitly supplied URL."""
+    file = request.files.get('camera_image') or request.files.get('image')
+    if file and file.filename:
+        if not allowed_file(file.filename) or not (file.mimetype or '').startswith('image/'):
+            raise ValueError('Ảnh phải có định dạng PNG, JPG, JPEG, GIF hoặc WEBP.')
+        extension = secure_filename(file.filename).rsplit('.', 1)[1].lower()
+        filename = f"product_{secrets.token_hex(10)}.{extension}"
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        return url_for('static', filename=f'uploads/{filename}')
+    if request.form.get('remove_image') == '1':
+        return None
+    return request.form.get('image_url', '').strip() or current_url
+
 DEFAULT_CATEGORIES = ['Quần áo', 'Phụ kiện', 'Đạo cụ']
 
 def get_product_categories():
@@ -576,17 +590,11 @@ def delete_category(id):
 @login_required
 def add_product():
     if request.method == 'POST':
-        image_url = request.form.get('image_url', '')
-        
-        if 'image' in request.files:
-            file = request.files['image']
-            if file and file.filename != '' and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                name, ext = os.path.splitext(filename)
-                filename = f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                image_url = url_for('static', filename=f'uploads/{filename}')
+        try:
+            image_url = product_image_from_request()
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('add_product'))
         
         try:
             category = category_from_form()
@@ -648,24 +656,11 @@ def edit_product(id):
         product.quantity = new_quantity
         product.available_quantity = new_quantity - rented_quantity
         
-        if 'image' in request.files:
-            file = request.files['image']
-            if file and file.filename != '' and allowed_file(file.filename):
-                if product.image_url and product.image_url.startswith('/static/uploads/'):
-                    old_filepath = product.image_url.replace('/static/', 'static/')
-                    if os.path.exists(old_filepath):
-                        os.remove(old_filepath)
-                
-                filename = secure_filename(file.filename)
-                name, ext = os.path.splitext(filename)
-                filename = f"{name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                product.image_url = url_for('static', filename=f'uploads/{filename}')
-        
-        image_url_input = request.form.get('image_url', '')
-        if image_url_input:
-            product.image_url = image_url_input
+        try:
+            product.image_url = product_image_from_request(product.image_url)
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('edit_product', id=id))
         
         db.session.commit()
         flash('Cập nhật sản phẩm thành công!', 'success')

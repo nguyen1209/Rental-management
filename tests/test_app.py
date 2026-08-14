@@ -196,6 +196,27 @@ class RentalAppTestCase(unittest.TestCase):
                      '/rentals', '/add-rental', '/reports'):
             self.assertEqual(self.client.get(path).status_code, 200, path)
 
+    def test_admin_can_upload_product_photo_from_phone_camera(self):
+        self.login_admin()
+        page = self.client.get('/add-product')
+        self.assertIn(b'name="camera_image"', page.data)
+        self.assertIn(b'capture="environment"', page.data)
+        with tempfile.TemporaryDirectory() as upload_folder:
+            previous_upload_folder = app.config['UPLOAD_FOLDER']
+            app.config['UPLOAD_FOLDER'] = upload_folder
+            response = self.client.post('/add-product', data={
+                '_csrf_token': self.csrf('/add-product'), 'name': 'Ảnh từ điện thoại',
+                'category': 'Quần áo', 'price_per_day': '100000', 'deposit': '0',
+                'quantity': '1', 'image_url': 'https://example.com/old.jpg',
+                'camera_image': (io.BytesIO(b'phone-photo'), 'camera.jpg')},
+                content_type='multipart/form-data')
+            app.config['UPLOAD_FOLDER'] = previous_upload_folder
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            product = Product.query.filter_by(name='Ảnh từ điện thoại').one()
+            self.assertTrue(product.image_url.startswith('/static/uploads/product_'))
+            self.assertNotEqual(product.image_url, 'https://example.com/old.jpg')
+
     def test_customer_page_does_not_use_admin_layout_when_both_sessions_exist(self):
         self.login_admin()
         self.client.post('/customer/register', data={

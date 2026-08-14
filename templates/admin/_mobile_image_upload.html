@@ -1,0 +1,22 @@
+<section class="mobile-image-upload" data-image-uploader>
+  <input type="hidden" name="remove_image" value="0" data-remove-image>
+  <div class="upload-heading">
+    <div><span class="eyebrow">UPLOAD NHANH</span><h3>Ảnh sản phẩm</h3><p>Chụp mới hoặc chọn ảnh có sẵn ngay trên điện thoại.</p></div>
+    <span class="mobile-ready"><i class="fa-solid fa-mobile-screen-button"></i> Tối ưu điện thoại</span>
+  </div>
+
+  <div class="upload-workspace">
+    <div class="upload-preview {{ 'has-image' if current_image_url else '' }}" data-preview-wrap>
+      <img data-preview src="{{ current_image_url or '' }}" alt="Xem trước ảnh sản phẩm" {{ '' if current_image_url else 'hidden' }}>
+      <div class="preview-placeholder" data-placeholder {{ 'hidden' if current_image_url else '' }}><i class="fa-regular fa-image"></i><b>Ảnh sẽ hiện ở đây</b><small>Nên chụp dọc, đủ sáng và rõ toàn bộ trang phục</small></div>
+      <button type="button" class="clear-upload" data-clear {{ '' if current_image_url else 'hidden' }}><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div class="upload-controls">
+      <label class="upload-action camera-action"><i class="fa-solid fa-camera"></i><span><b>Chụp ảnh ngay</b><small>Mở camera sau của điện thoại</small></span><input type="file" name="camera_image" accept="image/*" capture="environment" data-image-input></label>
+      <label class="upload-action gallery-action"><i class="fa-regular fa-images"></i><span><b>Chọn từ thư viện</b><small>Dùng ảnh đã có trong máy</small></span><input type="file" name="image" accept="image/png,image/jpeg,image/gif,image/webp" data-image-input></label>
+      <div class="upload-file-meta" data-file-meta>PNG, JPG, GIF hoặc WEBP · tối đa 5 MB</div>
+      <details class="image-url-option"><summary><i class="fa-solid fa-link"></i> Dùng URL ảnh</summary><input type="url" name="image_url" value="{{ current_image_url or '' }}" placeholder="https://example.com/image.jpg" data-url-input></details>
+    </div>
+  </div>
+</section>
