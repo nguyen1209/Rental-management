@@ -33,6 +33,8 @@ app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 app.config['BANK_CODE'] = os.environ.get('BANK_CODE', '').strip().upper()
 app.config['BANK_ACCOUNT'] = os.environ.get('BANK_ACCOUNT', '').strip()
 app.config['BANK_ACCOUNT_NAME'] = os.environ.get('BANK_ACCOUNT_NAME', '').strip().upper()
+app.config['PUBLIC_BASE_URL'] = os.environ.get(
+    'PUBLIC_BASE_URL', 'https://trangphucbieudienphuonglan.io.vn').rstrip('/')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 db.init_app(app)
@@ -135,6 +137,35 @@ def health():
         return {'status': 'ok'}, 200
     except Exception:
         return {'status': 'unhealthy'}, 503
+
+@app.route('/robots.txt')
+def robots_txt():
+    base_url = app.config['PUBLIC_BASE_URL']
+    content = (
+        "User-agent: *\n"
+        "Allow: /rent\n"
+        "Disallow: /admin\n"
+        "Disallow: /login\n"
+        "Disallow: /logout\n"
+        "Disallow: /checkout\n"
+        "Disallow: /customer/\n\n"
+        f"Sitemap: {base_url}/sitemap.xml\n"
+    )
+    return Response(content, mimetype='text/plain')
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    base_url = app.config['PUBLIC_BASE_URL']
+    content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{base_url}/rent</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+'''
+    return Response(content, mimetype='application/xml')
 
 @app.route('/admin')
 def admin():
