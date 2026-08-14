@@ -57,6 +57,24 @@ class RentalAppTestCase(unittest.TestCase):
         self.assertEqual(self.client.post('/customer/register', data={}).status_code, 400)
         self.assertEqual(self.client.get('/dashboard').status_code, 302)
 
+    def test_public_seo_endpoints_and_metadata(self):
+        robots = self.client.get('/robots.txt')
+        self.assertEqual(robots.status_code, 200)
+        self.assertIn(b'Sitemap: https://trangphucbieudienphuonglan.io.vn/sitemap.xml', robots.data)
+        sitemap = self.client.get('/sitemap.xml')
+        self.assertEqual(sitemap.status_code, 200)
+        self.assertIn(b'<loc>https://trangphucbieudienphuonglan.io.vn/rent</loc>', sitemap.data)
+        store = self.client.get('/rent')
+        self.assertIn(b'<meta name="description"', store.data)
+        self.assertIn(b'<link rel="canonical"', store.data)
+        self.assertIn(b'application/ld+json', store.data)
+        self.assertIn(b'"areaServed"', store.data)
+        self.assertIn('Cao Lãnh'.encode(), store.data)
+        self.assertIn('Cần Thơ'.encode(), store.data)
+        self.assertIn(b'<meta name="robots" content="index, follow">', store.data)
+        login = self.client.get('/login')
+        self.assertIn(b'<meta name="robots" content="noindex, nofollow">', login.data)
+
     def test_customer_register_order_and_history(self):
         product_id = self.create_product()
         response = self.client.post('/customer/register', data={
