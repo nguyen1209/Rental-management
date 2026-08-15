@@ -9,7 +9,7 @@ os.environ['DATABASE_URL'] = f"sqlite:///{TEST_DB.name.replace(os.sep, '/')}"
 os.environ['SECRET_KEY'] = 'test-secret-key'
 
 from app import app  # noqa: E402
-from models import Admin, Product, Rental, db  # noqa: E402
+from models import Admin, Product, Rental, RentalDetail, db  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
@@ -227,7 +227,8 @@ class RentalAppTestCase(unittest.TestCase):
             response = self.client.post('/add-product', data={
                 '_csrf_token': self.csrf('/add-product'), 'name': 'Ảnh từ điện thoại',
                 'category': 'Quần áo', 'price_per_day': '100000', 'deposit': '0',
-                'quantity': '1', 'image_url': 'https://example.com/old.jpg',
+                'quantity': '1', 'gender': 'unisex', 'sizes': ['M'],
+                'image_url': 'https://example.com/old.jpg',
                 'camera_image': (io.BytesIO(b'phone-photo'), 'camera.jpg')},
                 content_type='multipart/form-data')
             app.config['UPLOAD_FOLDER'] = previous_upload_folder
@@ -236,6 +237,30 @@ class RentalAppTestCase(unittest.TestCase):
             product = Product.query.filter_by(name='Ảnh từ điện thoại').one()
             self.assertTrue(product.image_url.startswith('/static/uploads/product_'))
             self.assertNotEqual(product.image_url, 'https://example.com/old.jpg')
+
+    def test_gender_size_filter_and_selected_size_are_saved(self):
+        with app.app_context():
+            product = Product(name='Váy biểu diễn nữ', category='Váy', gender='female',
+                              sizes='|S|M|', price_per_day=150000, quantity=2,
+                              available_quantity=2, status='active')
+            db.session.add(product)
+            db.session.commit()
+            product_id = product.id
+
+        filtered = self.client.get('/rent?gender=female&size=M')
+        self.assertIn('Váy biểu diễn nữ'.encode(), filtered.data)
+        self.assertNotIn('option value="XL" selected'.encode(), filtered.data)
+
+        self.client.post('/customer/register', data={
+            '_csrf_token': self.csrf('/customer/register'), 'fullname': 'Khách chọn size',
+            'phone': '0900000999', 'email': 'size@example.com', 'password': 'secret1'})
+        response = self.client.post('/checkout', data={
+            '_csrf_token': self.csrf('/checkout'), 'fullname': 'Khách chọn size',
+            'phone': '0900000999', 'start_date': '2026-09-01', 'end_date': '2026-09-03',
+            'product_id[]': [str(product_id)], 'quantity[]': ['1'], 'size[]': ['M']})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            self.assertEqual(RentalDetail.query.one().selected_size, 'M')
 
     def test_customer_page_does_not_use_admin_layout_when_both_sessions_exist(self):
         self.login_admin()

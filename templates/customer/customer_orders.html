@@ -34,7 +34,7 @@
           {% if order.payment_status != 'paid' %}<form class="payment-proof" method="post" action="{{ url_for('submit_payment_proof', id=order.id) }}" enctype="multipart/form-data"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label><span>Ảnh giao dịch chuyển khoản *</span><input type="file" name="payment_receipt" accept="image/png,image/jpeg,image/gif,image/webp" required></label>{% if order.payment_receipt_url %}<a class="receipt-preview" href="{{ order.payment_receipt_url }}" target="_blank"><img src="{{ order.payment_receipt_url }}" alt="Ảnh giao dịch đã gửi"><span>Xem ảnh đã gửi</span></a>{% endif %}<button type="submit"><i class="fa-solid fa-circle-check"></i> {{ 'Gửi lại ảnh giao dịch' if order.payment_receipt_url else 'Tôi đã thanh toán' }}</button><small>Ảnh tối đa 5 MB. Cửa hàng sẽ kiểm tra trước khi xác nhận.</small></form>{% endif %}
         {% endif %}
 
-        <div class="history-items">{% for detail in order.details %}<div><span><b>{{ detail.product.name }}</b><small>{{ '{:,.0f}'.format(detail.price_per_day) }}đ/ngày × {{ detail.quantity }} món × {{ detail.days }} ngày</small></span><strong>{{ '{:,.0f}'.format(detail.subtotal) }}đ</strong></div>{% endfor %}</div>
+        <div class="history-items">{% for detail in order.details %}<div><span><b>{{ detail.product.name }}{% if detail.selected_size %} · Size {{ detail.selected_size }}{% endif %}</b><small>{{ '{:,.0f}'.format(detail.price_per_day) }}đ/ngày × {{ detail.quantity }} món × {{ detail.days }} ngày</small></span><strong>{{ '{:,.0f}'.format(detail.subtotal) }}đ</strong></div>{% endfor %}</div>
         <footer><span><i class="fa-regular fa-calendar"></i> {{ order.start_date.strftime('%d/%m/%Y') }} → {{ order.end_date.strftime('%d/%m/%Y') }}</span><strong>Tổng: {{ '{:,.0f}'.format(order.total_amount) }}đ</strong></footer>
       </article>
       {% endfor %}
@@ -57,7 +57,7 @@
           <i class="fa-solid fa-chevron-down compact-chevron"></i>
         </summary>
         <div class="compact-details">
-          {% for detail in order.details %}<div><span>{{ detail.product.name }} × {{ detail.quantity }}</span><b>{{ '{:,.0f}'.format(detail.subtotal) }}đ</b></div>{% endfor %}
+          {% for detail in order.details %}<div><span>{{ detail.product.name }}{% if detail.selected_size %} · Size {{ detail.selected_size }}{% endif %} × {{ detail.quantity }}</span><b>{{ '{:,.0f}'.format(detail.subtotal) }}đ</b></div>{% endfor %}
           <p>Đặt ngày {{ order.rental_date.strftime('%d/%m/%Y') }}{% if order.payment_status == 'paid' %} · Đã thanh toán{% endif %}</p>
         </div>
       </details>

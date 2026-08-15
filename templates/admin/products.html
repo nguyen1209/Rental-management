@@ -39,6 +39,7 @@
                 <th>ID</th>
                 <th>Tên sản phẩm</th>
                 <th>Danh mục</th>
+                <th>Phân loại / Size</th>
                 <th>Giá/ngày</th>
                 <th>Tiền cọc</th>
                 <th>Số lượng</th>
@@ -65,6 +66,7 @@
                 <td>
                     <span class="badge bg-info">{{ product.category }}</span>
                 </td>
+                <td>{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}<br><small>{{ product.size_list|join(', ') or 'Chưa cập nhật' }}</small></td>
                 <td>{{ "{:,.0f}".format(product.price_per_day) }} VNĐ</td>
                 <td>{{ "{:,.0f}".format(product.deposit) }} VNĐ</td>
                 <td>{{ product.quantity }}</td>
