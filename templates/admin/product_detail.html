@@ -30,6 +30,14 @@
                         <td><span class="badge bg-info">{{ product.category }}</span></td>
                     </tr>
                     <tr>
+                        <th>Phân loại:</th>
+                        <td>{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}</td>
+                    </tr>
+                    <tr>
+                        <th>Size:</th>
+                        <td>{{ product.size_list|join(', ') or 'Chưa cập nhật' }}</td>
+                    </tr>
+                    <tr>
                         <th>Giá thuê/ngày:</th>
                         <td class="text-danger fw-bold">{{ "{:,.0f}".format(product.price_per_day) }} VNĐ</td>
                     </tr>

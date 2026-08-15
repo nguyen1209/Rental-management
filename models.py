@@ -29,6 +29,8 @@ class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(50), nullable=False)
+    gender = db.Column(db.String(20), nullable=False, default='unisex')
+    sizes = db.Column(db.String(100))
     description = db.Column(db.Text)
     price_per_day = db.Column(db.Float, nullable=False)
     deposit = db.Column(db.Float, default=0)
@@ -37,6 +39,10 @@ class Product(db.Model):
     image_url = db.Column(db.String(200))
     status = db.Column(db.String(20), default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def size_list(self):
+        return [size for size in (self.sizes or '').strip('|').split('|') if size]
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -76,5 +82,6 @@ class RentalDetail(db.Model):
     subtotal = db.Column(db.Float, nullable=False)
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
+    selected_size = db.Column(db.String(10))
     
     product = db.relationship('Product', backref='rental_details')

@@ -20,6 +20,9 @@ load_dotenv(os.path.join(BASE_DIR, '.env'), override=True)
 
 app = Flask(__name__)
 
+PRODUCT_GENDERS = {'male': 'Nam', 'female': 'Nữ', 'unisex': 'Unisex'}
+PRODUCT_SIZES = ('XS', 'S', 'M', 'L', 'XL', 'XXL')
+
 # Cấu hình
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///rental.db')
@@ -65,7 +68,8 @@ def inject_csrf_token():
             info['qr_url'] = (f"https://img.vietqr.io/image/{info['bank_code']}-"
                               f"{info['account']}-compact2.png?{query}")
         return info
-    return {'csrf_token': csrf_token, 'bank_transfer': bank_transfer}
+    return {'csrf_token': csrf_token, 'bank_transfer': bank_transfer,
+            'product_genders': PRODUCT_GENDERS, 'product_sizes': PRODUCT_SIZES}
 
 @app.before_request
 def protect_post_requests():
@@ -118,6 +122,16 @@ def category_from_form():
     if not Category.query.filter_by(name=category).first():
         db.session.add(Category(name=category))
     return category
+
+def product_variants_from_form():
+    gender = request.form.get('gender', '').strip().lower()
+    sizes = request.form.getlist('sizes')
+    if gender not in PRODUCT_GENDERS:
+        raise ValueError('Vui lòng chọn phân loại Nam, Nữ hoặc Unisex!')
+    normalized_sizes = [size for size in PRODUCT_SIZES if size in sizes]
+    if not normalized_sizes:
+        raise ValueError('Vui lòng chọn ít nhất một size!')
+    return gender, f"|{'|'.join(normalized_sizes)}|"
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -179,6 +193,8 @@ def customer_rent():
     customer_account = Customer.query.get(session.get('customer_id')) if session.get('customer_id') else None
     search = request.args.get('q', '').strip()
     selected_category = request.args.get('category', '').strip()
+    selected_gender = request.args.get('gender', '').strip().lower()
+    selected_size = request.args.get('size', '').strip().upper()
     sort = request.args.get('sort', 'newest')
     filter_start_str = request.args.get('start_date', '').strip()
     filter_end_str = request.args.get('end_date', '').strip()
@@ -206,6 +222,10 @@ def customer_rent():
         if selected_node:
             category_names.extend(child.name for child in selected_node.children)
         product_query = product_query.filter(Product.category.in_(category_names))
+    if selected_gender in PRODUCT_GENDERS:
+        product_query = product_query.filter(Product.gender == selected_gender)
+    if selected_size in PRODUCT_SIZES:
+        product_query = product_query.filter(Product.sizes.like(f'%|{selected_size}|%'))
     sort_options = {
         'price_asc': Product.price_per_day.asc(),
         'price_desc': Product.price_per_day.desc(),
@@ -280,6 +300,7 @@ def customer_rent():
 
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
+        selected_sizes = request.form.getlist('size[]')
         item_start_dates = request.form.getlist('item_start_date[]')
         item_end_dates = request.form.getlist('item_end_date[]')
         # Gom các dòng trùng sản phẩm và luôn kiểm tra tồn kho ở máy chủ.
@@ -293,14 +314,16 @@ def customer_rent():
                 quantity = int(raw_quantity)
                 if quantity <= 0:
                     raise ValueError('Số lượng thuê phải lớn hơn 0!')
-                cart[pid] = cart.get(pid, 0) + quantity
+                chosen_size = selected_sizes[index].strip().upper() if index < len(selected_sizes) else ''
+                cart_key = (pid, chosen_size)
+                cart[cart_key] = cart.get(cart_key, 0) + quantity
                 raw_start = item_start_dates[index] if index < len(item_start_dates) else ''
                 raw_end = item_end_dates[index] if index < len(item_end_dates) else ''
                 detail_start = datetime.strptime(raw_start, '%Y-%m-%d') if raw_start else start_date
                 detail_end = datetime.strptime(raw_end, '%Y-%m-%d') if raw_end else end_date
                 if detail_end <= detail_start:
                     raise ValueError('Ngày trả của từng sản phẩm phải sau ngày nhận!')
-                item_schedules[pid] = (detail_start, detail_end)
+                item_schedules[cart_key] = (detail_start, detail_end)
         except (TypeError, ValueError) as exc:
             flash(str(exc) or 'Giỏ hàng không hợp lệ!', 'danger')
             return redirect(url_for('customer_checkout'))
@@ -341,7 +364,7 @@ def customer_rent():
 
         total_amount = 0
         try:
-            for product_id, quantity in cart.items():
+            for (product_id, chosen_size), quantity in cart.items():
                 product = Product.query.filter_by(id=product_id, status='active').first()
                 if not product:
                     raise ValueError('Có sản phẩm không còn khả dụng!')
@@ -349,7 +372,10 @@ def customer_rent():
                 if quantity > product.available_quantity:
                     raise ValueError(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!')
 
-                detail_start, detail_end = item_schedules[product_id]
+                if product.size_list and chosen_size not in product.size_list:
+                    raise ValueError(f'Vui lòng chọn size hợp lệ cho {product.name}!')
+
+                detail_start, detail_end = item_schedules[(product_id, chosen_size)]
                 detail_days = (detail_end - detail_start).days
                 subtotal = product.price_per_day * detail_days * quantity
                 total_amount += subtotal
@@ -362,7 +388,8 @@ def customer_rent():
                     days=detail_days,
                     subtotal=subtotal,
                     start_date=detail_start,
-                    end_date=detail_end
+                    end_date=detail_end,
+                    selected_size=chosen_size or None
                 )
                 db.session.add(detail)
                 product.available_quantity -= quantity
@@ -378,6 +405,7 @@ def customer_rent():
 
     return render_template('customer/customer_rent.html', products=products, categories=categories,
                            search=search, selected_category=selected_category,
+                           selected_gender=selected_gender, selected_size=selected_size,
                            customer_account=customer_account, sort=sort,
                            category_roots=category_roots,
                            filter_start_str=filter_start_str, filter_end_str=filter_end_str)
@@ -629,6 +657,7 @@ def add_product():
         
         try:
             category = category_from_form()
+            gender, sizes = product_variants_from_form()
         except ValueError as exc:
             flash(str(exc), 'danger')
             return redirect(url_for('add_product'))
@@ -648,6 +677,8 @@ def add_product():
         product = Product(
             name=name,
             category=category,
+            gender=gender,
+            sizes=sizes,
             description=request.form.get('description', ''),
             price_per_day=price_per_day,
             deposit=deposit,
@@ -661,7 +692,8 @@ def add_product():
         flash('Thêm sản phẩm thành công!', 'success')
         return redirect(url_for('products'))
     
-    return render_template('admin/add_product.html', categories=get_product_categories())
+    return render_template('admin/add_product.html', categories=get_product_categories(),
+                           genders=PRODUCT_GENDERS, sizes=PRODUCT_SIZES)
 
 @app.route('/edit-product/<int:id>', methods=['GET', 'POST'])
 @login_required
@@ -672,6 +704,7 @@ def edit_product(id):
         product.name = request.form['name']
         try:
             product.category = category_from_form()
+            product.gender, product.sizes = product_variants_from_form()
         except ValueError as exc:
             flash(str(exc), 'danger')
             return redirect(url_for('edit_product', id=id))
@@ -698,7 +731,8 @@ def edit_product(id):
         return redirect(url_for('products'))
     
     return render_template('admin/edit_product.html', product=product,
-                           categories=get_product_categories())
+                           categories=get_product_categories(), genders=PRODUCT_GENDERS,
+                           sizes=PRODUCT_SIZES)
 
 @app.route('/delete-product/<int:id>', methods=['POST'])
 @login_required
@@ -785,6 +819,7 @@ def add_rental():
         
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
+        selected_sizes = request.form.getlist('size[]')
         item_start_dates = request.form.getlist('item_start_date[]')
         item_end_dates = request.form.getlist('item_end_date[]')
         
@@ -823,6 +858,12 @@ def add_rental():
             product = Product.query.get(product_id)
             if not product or product.status != 'active':
                 flash('Có sản phẩm không còn khả dụng!', 'danger')
+                db.session.rollback()
+                return redirect(url_for('add_rental'))
+
+            chosen_size = selected_sizes[i].strip().upper() if i < len(selected_sizes) else ''
+            if product.size_list and chosen_size not in product.size_list:
+                flash(f'Vui lòng chọn size hợp lệ cho {product.name}!', 'danger')
                 db.session.rollback()
                 return redirect(url_for('add_rental'))
             
@@ -868,7 +909,8 @@ def add_rental():
                 days=detail_days,
                 subtotal=subtotal,
                 start_date=detail_start,
-                end_date=detail_end
+                end_date=detail_end,
+                selected_size=chosen_size or None
             )
             db.session.add(detail)
             
@@ -1240,11 +1282,18 @@ def init_db():
         if 'password_hash' not in columns:
             db.session.execute(text('ALTER TABLE customer ADD COLUMN password_hash VARCHAR(200)'))
             db.session.commit()
+        product_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(product)')).fetchall()]
+        if 'gender' not in product_columns:
+            db.session.execute(text("ALTER TABLE product ADD COLUMN gender VARCHAR(20) DEFAULT 'unisex'"))
+        if 'sizes' not in product_columns:
+            db.session.execute(text('ALTER TABLE product ADD COLUMN sizes VARCHAR(100)'))
         detail_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental_detail)')).fetchall()]
         if 'start_date' not in detail_columns:
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN start_date DATETIME'))
         if 'end_date' not in detail_columns:
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN end_date DATETIME'))
+        if 'selected_size' not in detail_columns:
+            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN selected_size VARCHAR(10)'))
         rental_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental)')).fetchall()]
         if 'payment_method' not in rental_columns:
             db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_method VARCHAR(20) DEFAULT 'cash'"))
