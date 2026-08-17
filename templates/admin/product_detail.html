@@ -35,7 +35,7 @@
                     </tr>
                     <tr>
                         <th>Size:</th>
-                        <td>{% if product.variant_list %}{% for variant in product.variant_list %}<span class="badge bg-info me-1">{{ product_genders.get(variant.gender, variant.gender) }} · {{ variant.size }} · còn {{ variant.available }}/{{ variant.quantity }}</span>{% endfor %}{% else %}{{ product.size_list|join(', ') or 'Chưa cập nhật' }}{% endif %}</td>
+                        <td>{% if product.variant_list %}Khách chọn size XS–XXL khi đặt thuê{% else %}{{ product.size_list|join(', ') or 'Khách chọn khi đặt' }}{% endif %}</td>
                     </tr>
                     <tr>
                         <th>Giá thuê/ngày:</th>

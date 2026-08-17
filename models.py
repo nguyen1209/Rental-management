@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 
 db = SQLAlchemy()
+PRODUCT_SIZE_VALUES = ('XS', 'S', 'M', 'L', 'XL', 'XXL')
 
 class Admin(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -45,7 +46,9 @@ class Product(db.Model):
     @property
     def size_list(self):
         if self.variant_list:
-            return list(dict.fromkeys(item['size'] for item in self.variant_list))
+            variant_sizes = [item.get('size') for item in self.variant_list if item.get('size')]
+            if variant_sizes:
+                return list(dict.fromkeys(variant_sizes))
         return [size for size in (self.sizes or '').strip('|').split('|') if size]
 
     @property
@@ -61,6 +64,25 @@ class Product(db.Model):
         if self.variant_list:
             return list(dict.fromkeys(item['gender'] for item in self.variant_list))
         return [self.gender or 'unisex']
+
+    @property
+    def selectable_variants(self):
+        options = []
+        for item in self.gender_inventory:
+            for size in PRODUCT_SIZE_VALUES:
+                options.append({'gender': item['gender'], 'size': size,
+                                'available': item['available']})
+        return options
+
+    @property
+    def gender_inventory(self):
+        grouped = {}
+        for item in self.variant_list:
+            value = grouped.setdefault(item['gender'], {'gender': item['gender'],
+                                                        'quantity': 0, 'available': 0})
+            value['quantity'] += item['quantity']
+            value['available'] += item['available']
+        return list(grouped.values())
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
