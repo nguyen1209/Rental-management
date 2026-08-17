@@ -181,10 +181,13 @@
             {% endfor %}
         </tbody>
         <tfoot>
+            {% set product_total = rental.details|sum(attribute='subtotal') %}
             <tr>
                 <td colspan="6" class="text-end fw-bold">Tổng tiền thuê:</td>
-                <td class="text-end fw-bold text-primary fs-6">{{ "{:,.0f}".format(rental.total_amount) }} VNĐ</td>
+                <td class="text-end fw-bold">{{ "{:,.0f}".format(product_total) }} VNĐ</td>
             </tr>
+            {% if rental.adjustment_amount %}<tr><td colspan="6" class="text-end"><b>Điều chỉnh:</b>{% if rental.adjustment_note %}<br><small>{{ rental.adjustment_note }}</small>{% endif %}</td><td class="text-end fw-bold {{ 'text-success' if rental.adjustment_amount > 0 else 'text-danger' }}">{{ '+' if rental.adjustment_amount > 0 }}{{ "{:,.0f}".format(rental.adjustment_amount) }} VNĐ</td></tr>{% endif %}
+            <tr><td colspan="6" class="text-end fw-bold">Tổng tiền thuê sau điều chỉnh:</td><td class="text-end fw-bold text-primary fs-6">{{ "{:,.0f}".format(rental.total_amount) }} VNĐ</td></tr>
             <tr>
                 <td colspan="6" class="text-end fw-bold">Tổng tiền đặt cọc (dự kiến):</td>
                 <td class="text-end fw-bold text-danger">{{ "{:,.0f}".format(total_deposit.val) }} VNĐ</td>

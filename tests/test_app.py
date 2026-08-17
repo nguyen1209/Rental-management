@@ -358,6 +358,32 @@ class RentalAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'H\xc3\x93A \xc4\x90\xc6\xa0N CHO THU\xc3\x8a', response.data)
 
+    def test_admin_can_add_and_update_signed_order_adjustment(self):
+        product_id = self.create_product(quantity=2)
+        self.login_admin()
+        response = self.client.post('/add-rental', data={
+            '_csrf_token': self.csrf('/add-rental'), 'customer_mode': 'guest',
+            'guest_name': 'Khách thuê ngoài', 'guest_phone': '0900000777',
+            'start_date': '2026-11-01', 'end_date': '2026-11-03',
+            'product_id[]': [str(product_id)], 'quantity[]': ['1'],
+            'adjustment_amount': '200000',
+            'adjustment_note': 'Thuê thêm trang phục bên ngoài'})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            rental = Rental.query.one()
+            rental_id = rental.id
+            self.assertEqual(rental.total_amount, 400000)
+            self.assertEqual(rental.adjustment_amount, 200000)
+
+        response = self.client.post(f'/rentals/{rental_id}/adjustment', data={
+            '_csrf_token': self.csrf('/rentals'), 'adjustment_amount': '-50000',
+            'adjustment_note': 'Giảm giá hỗ trợ'})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            rental = db.session.get(Rental, rental_id)
+            self.assertEqual(rental.total_amount, 150000)
+            self.assertEqual(rental.adjustment_note, 'Giảm giá hỗ trợ')
+
     def test_customer_rent_date_range_filtering(self):
         product_id = self.create_product(quantity=2)
         self.login_admin()
