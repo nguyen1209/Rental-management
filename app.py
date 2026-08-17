@@ -9,6 +9,7 @@ import calendar
 import secrets
 import os
 import json
+import math
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from sqlalchemy import func, desc, text, or_
@@ -827,6 +828,28 @@ def rental_invoice(id):
     rental = Rental.query.get_or_404(id)
     return render_template('admin/invoice.html', rental=rental)
 
+@app.route('/rentals/<int:id>/adjustment', methods=['POST'])
+@login_required
+def update_rental_adjustment(id):
+    rental = Rental.query.get_or_404(id)
+    try:
+        adjustment_amount = float(request.form.get('adjustment_amount') or 0)
+        if not math.isfinite(adjustment_amount):
+            raise ValueError
+    except (TypeError, ValueError):
+        flash('Khoản cộng/trừ không hợp lệ!', 'danger')
+        return redirect(url_for('rentals'))
+    product_total = sum(detail.subtotal for detail in rental.details)
+    if product_total + adjustment_amount < 0:
+        flash('Khoản trừ không được lớn hơn tiền thuê sản phẩm!', 'danger')
+        return redirect(url_for('rentals'))
+    rental.adjustment_amount = adjustment_amount
+    rental.adjustment_note = request.form.get('adjustment_note', '').strip()[:500] or None
+    rental.total_amount = product_total + adjustment_amount
+    db.session.commit()
+    flash(f'Đã cập nhật khoản điều chỉnh cho đơn {rental.rental_code}.', 'success')
+    return redirect(url_for('rentals'))
+
 @app.route('/rentals/<int:id>/confirm-payment', methods=['POST'])
 @login_required
 def confirm_rental_payment(id):
@@ -876,6 +899,15 @@ def add_rental():
         if days <= 0:
             flash('Ngày kết thúc phải sau ngày bắt đầu!', 'danger')
             return redirect(url_for('add_rental'))
+
+        try:
+            adjustment_amount = float(request.form.get('adjustment_amount') or 0)
+            if not math.isfinite(adjustment_amount):
+                raise ValueError
+        except (TypeError, ValueError):
+            flash('Khoản cộng/trừ không hợp lệ!', 'danger')
+            return redirect(url_for('add_rental'))
+        adjustment_note = request.form.get('adjustment_note', '').strip()[:500]
         
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
@@ -903,7 +935,9 @@ def add_rental():
             customer_id=customer.id,
             start_date=start_date,
             end_date=end_date,
-            status='pending'
+            status='pending',
+            adjustment_amount=adjustment_amount,
+            adjustment_note=adjustment_note or None
         )
         db.session.add(rental)
         db.session.flush()
@@ -987,12 +1021,16 @@ def add_rental():
                 product.variants = json.dumps(product_variants, ensure_ascii=False)
             product.available_quantity -= quantity
         
-        rental.total_amount = total_amount
+        if total_amount + adjustment_amount < 0:
+            db.session.rollback()
+            flash('Khoản trừ không được lớn hơn tiền thuê sản phẩm!', 'danger')
+            return redirect(url_for('add_rental'))
+        rental.total_amount = total_amount + adjustment_amount
         rental.start_date = schedule_start
         rental.end_date = schedule_end
         db.session.commit()
         
-        flash(f'Tạo đơn thuê thành công! Mã: {rental_code} - Tổng tiền: {total_amount:,.0f}đ', 'success')
+        flash(f'Tạo đơn thuê thành công! Mã: {rental_code} - Tổng tiền: {rental.total_amount:,.0f}đ', 'success')
         return redirect(url_for('rentals'))
     
     customers = Customer.query.all()
@@ -1380,6 +1418,10 @@ def init_db():
             db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_receipt_url VARCHAR(300)'))
         if 'payment_submitted_at' not in rental_columns:
             db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_submitted_at DATETIME'))
+        if 'adjustment_amount' not in rental_columns:
+            db.session.execute(text('ALTER TABLE rental ADD COLUMN adjustment_amount FLOAT DEFAULT 0'))
+        if 'adjustment_note' not in rental_columns:
+            db.session.execute(text('ALTER TABLE rental ADD COLUMN adjustment_note TEXT'))
         db.session.commit()
         
         admin_username = os.environ.get('ADMIN_USERNAME', 'admin')

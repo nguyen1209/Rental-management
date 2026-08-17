@@ -104,6 +104,8 @@ class Rental(db.Model):
     status = db.Column(db.String(20), default='rented')
     notes = db.Column(db.Text)
     total_amount = db.Column(db.Float, default=0)
+    adjustment_amount = db.Column(db.Float, default=0)
+    adjustment_note = db.Column(db.Text)
     payment_method = db.Column(db.String(20), default='cash')
     payment_status = db.Column(db.String(30), default='unpaid')
     paid_at = db.Column(db.DateTime)

@@ -61,6 +61,8 @@
                     </td>
                     <td>
                         <strong class="text-primary">{{ "{:,.0f}".format(rental.total_amount) if rental.total_amount else 0 }}đ</strong>
+                        {% if rental.adjustment_amount %}<br><small class="{{ 'text-success' if rental.adjustment_amount > 0 else 'text-danger' }}">Điều chỉnh: {{ '+' if rental.adjustment_amount > 0 }}{{ "{:,.0f}".format(rental.adjustment_amount) }}đ</small>{% endif %}
+                        {% if rental.adjustment_note %}<br><small class="text-muted">{{ rental.adjustment_note }}</small>{% endif %}
                     </td>
                     <td>
                         {% if rental.payment_method == 'bank_transfer' %}
@@ -82,6 +84,15 @@
                     </td>
                     <td>
                         <div class="rental-actions d-flex flex-wrap gap-1">
+                            <details class="w-100 mb-1">
+                                <summary class="btn btn-sm btn-outline-primary">± Cộng/trừ tiền</summary>
+                                <form method="post" action="{{ url_for('update_rental_adjustment', id=rental.id) }}" class="border rounded p-2 mt-1 d-grid gap-1">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <input type="number" name="adjustment_amount" step="1000" value="{{ rental.adjustment_amount or 0 }}" placeholder="Số dương cộng, số âm trừ" required>
+                                    <input name="adjustment_note" maxlength="500" value="{{ rental.adjustment_note or '' }}" placeholder="Lý do: thuê thêm bên ngoài...">
+                                    <button type="submit" class="btn btn-sm btn-primary">Lưu điều chỉnh</button>
+                                </form>
+                            </details>
                             {% if rental.payment_method == 'bank_transfer' and rental.payment_status != 'paid' and rental.status != 'cancelled' %}
                                 <form method="post" action="{{ url_for('confirm_rental_payment', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận đã nhận đúng số tiền chuyển khoản?')">
                                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
