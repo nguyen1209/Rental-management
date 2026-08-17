@@ -227,8 +227,7 @@ class RentalAppTestCase(unittest.TestCase):
             response = self.client.post('/add-product', data={
                 '_csrf_token': self.csrf('/add-product'), 'name': 'Ảnh từ điện thoại',
                 'category': 'Quần áo', 'price_per_day': '100000', 'deposit': '0',
-                'variant_gender[]': ['unisex'], 'variant_size[]': ['M'],
-                'variant_quantity[]': ['1'],
+                'variant_gender[]': ['unisex'], 'variant_quantity[]': ['1'],
                 'image_url': 'https://example.com/old.jpg',
                 'camera_image': (io.BytesIO(b'phone-photo'), 'camera.jpg')},
                 content_type='multipart/form-data')
@@ -268,20 +267,19 @@ class RentalAppTestCase(unittest.TestCase):
         response = self.client.post('/add-product', data={
             '_csrf_token': self.csrf('/add-product'), 'name': 'Trang phục đôi',
             'category': 'Biểu diễn', 'price_per_day': '200000', 'deposit': '0',
-            'variant_gender[]': ['male', 'male', 'female'],
-            'variant_size[]': ['M', 'L', 'S'],
-            'variant_quantity[]': ['3', '2', '4']})
+            'variant_gender[]': ['male', 'female'],
+            'variant_quantity[]': ['5', '4']})
         self.assertEqual(response.status_code, 302)
         with app.app_context():
             product = Product.query.filter_by(name='Trang phục đôi').one()
             self.assertEqual(product.quantity, 9)
             self.assertEqual(product.available_quantity, 9)
-            self.assertEqual(len(product.variant_list), 3)
-            self.assertEqual(product.variant_list[2]['gender'], 'female')
+            self.assertEqual(len(product.variant_list), 2)
+            self.assertEqual(product.variant_list[1]['gender'], 'female')
             product_id = product.id
 
         storefront = self.client.get('/rent')
-        self.assertIn('Nam · Size M · Còn 3'.encode(), storefront.data)
+        self.assertIn('Nam · Size M · Còn 5'.encode(), storefront.data)
         self.assertIn('Nữ · Size S · Còn 4'.encode(), storefront.data)
         self.client.post('/customer/register', data={
             '_csrf_token': self.csrf('/customer/register'), 'fullname': 'Khách biến thể',
@@ -294,7 +292,7 @@ class RentalAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with app.app_context():
             product = db.session.get(Product, product_id)
-            self.assertEqual(product.variant_list[0]['available'], 2)
+            self.assertEqual(product.variant_list[0]['available'], 4)
             detail = RentalDetail.query.filter_by(product_id=product_id).one()
             self.assertEqual(detail.selected_gender, 'male')
 

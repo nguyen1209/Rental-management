@@ -125,52 +125,55 @@ def category_from_form():
 
 def product_variants_from_form():
     genders = request.form.getlist('variant_gender[]')
-    sizes = request.form.getlist('variant_size[]')
     quantities = request.form.getlist('variant_quantity[]')
-    if not genders or len(genders) != len(sizes) or len(sizes) != len(quantities):
-        raise ValueError('Vui lòng nhập ít nhất một biến thể giới tính, size và số lượng!')
+    if not genders or len(genders) != len(quantities):
+        raise ValueError('Vui lòng nhập ít nhất một phân loại Nam/Nữ và số lượng!')
     variants = []
     seen = set()
-    for gender, size, raw_quantity in zip(genders, sizes, quantities):
-        gender, size = gender.strip().lower(), size.strip().upper()
-        if gender not in PRODUCT_GENDERS or size not in PRODUCT_SIZES:
-            raise ValueError('Phân loại hoặc size không hợp lệ!')
+    for gender, raw_quantity in zip(genders, quantities):
+        gender = gender.strip().lower()
+        if gender not in PRODUCT_GENDERS:
+            raise ValueError('Phân loại không hợp lệ!')
         try:
             quantity = int(raw_quantity)
         except (TypeError, ValueError):
             raise ValueError('Số lượng của từng biến thể không hợp lệ!')
-        if quantity < 0 or (gender, size) in seen:
-            raise ValueError('Số lượng phải từ 0 và mỗi phân loại-size chỉ được nhập một lần!')
-        seen.add((gender, size))
-        variants.append({'gender': gender, 'size': size, 'quantity': quantity,
+        if quantity < 0 or gender in seen:
+            raise ValueError('Số lượng phải từ 0 và mỗi phân loại chỉ được nhập một lần!')
+        seen.add(gender)
+        variants.append({'gender': gender, 'size': '', 'quantity': quantity,
                          'available': quantity})
     if not any(item['quantity'] for item in variants):
         raise ValueError('Tổng số lượng sản phẩm phải lớn hơn 0!')
     return variants
 
 def update_product_variants(product, submitted_variants):
-    old = {(item['gender'], item['size']): item for item in product.variant_list}
+    old = {}
+    for item in product.variant_list:
+        previous = old.setdefault(item['gender'], {'quantity': 0, 'available': 0})
+        previous['quantity'] += item['quantity']
+        previous['available'] += item['available']
     for item in submitted_variants:
-        previous = old.get((item['gender'], item['size']))
+        previous = old.get(item['gender'])
         rented = max(previous['quantity'] - previous['available'], 0) if previous else 0
         if item['quantity'] < rented:
-            label = f"{PRODUCT_GENDERS[item['gender']]} - {item['size']}"
+            label = PRODUCT_GENDERS[item['gender']]
             raise ValueError(f'Không thể giảm {label} dưới {rented} món đang được thuê!')
         item['available'] = item['quantity'] - rented
     product.variants = json.dumps(submitted_variants, ensure_ascii=False)
     product.quantity = sum(item['quantity'] for item in submitted_variants)
     product.available_quantity = sum(item['available'] for item in submitted_variants)
     product.gender = 'unisex'
-    product.sizes = '|' + '|'.join(dict.fromkeys(item['size'] for item in submitted_variants)) + '|'
+    product.sizes = '|' + '|'.join(PRODUCT_SIZES) + '|'
 
 def find_variant(product, gender, size):
     return next((item for item in product.variant_list
-                 if item['gender'] == gender and item['size'] == size), None)
+                 if item['gender'] == gender and (not item.get('size') or item['size'] == size)), None)
 
 def restore_detail_inventory(product, detail):
     variants = product.variant_list
     variant = next((item for item in variants if item['gender'] == detail.selected_gender
-                    and item['size'] == detail.selected_size), None)
+                    and (not item.get('size') or item['size'] == detail.selected_size)), None)
     if variant:
         variant['available'] = min(variant['quantity'], variant['available'] + detail.quantity)
         product.variants = json.dumps(variants, ensure_ascii=False)
@@ -316,7 +319,7 @@ def customer_rent():
             return redirect(url_for('customer_login', next=url_for('customer_checkout')))
         variant_catalog = {}
         for product in Product.query.filter_by(status='active').all():
-            variants = product.variant_list
+            variants = product.selectable_variants
             if not variants:
                 variants = [{'gender': product.gender or 'unisex', 'size': size,
                              'available': product.available_quantity}
@@ -427,7 +430,8 @@ def customer_rent():
 
                 product_variants = product.variant_list
                 variant = next((item for item in product_variants
-                                if item['gender'] == chosen_gender and item['size'] == chosen_size), None)
+                                if item['gender'] == chosen_gender
+                                and (not item.get('size') or item['size'] == chosen_size)), None)
                 available = variant['available'] if variant else product.available_quantity
                 if product.variant_list and not variant:
                     raise ValueError(f'Vui lòng chọn phân loại và size hợp lệ cho {product.name}!')
@@ -922,7 +926,8 @@ def add_rental():
             chosen_gender = selected_genders[i].strip().lower() if i < len(selected_genders) else ''
             product_variants = product.variant_list
             variant = next((item for item in product_variants
-                            if item['gender'] == chosen_gender and item['size'] == chosen_size), None)
+                            if item['gender'] == chosen_gender
+                            and (not item.get('size') or item['size'] == chosen_size)), None)
             if product_variants and not variant:
                 flash(f'Vui lòng chọn phân loại và size hợp lệ cho {product.name}!', 'danger')
                 db.session.rollback()
