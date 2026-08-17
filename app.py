@@ -234,6 +234,23 @@ def admin():
         return redirect(url_for('dashboard'))
     return redirect(url_for('login'))
 
+@app.route('/admin/<page>')
+def admin_compatibility_redirect(page):
+    """Redirect URLs left behind by the removed React frontend."""
+    endpoints = {
+        'login': 'login',
+        'dashboard': 'dashboard',
+        'products': 'products',
+        'categories': 'categories',
+        'customers': 'customers',
+        'rentals': 'rentals',
+        'reports': 'reports',
+    }
+    endpoint = endpoints.get(page)
+    if not endpoint:
+        abort(404)
+    return redirect(url_for(endpoint))
+
 @app.route('/checkout', methods=['GET', 'POST'], endpoint='customer_checkout')
 @app.route('/rent', methods=['GET', 'POST'])
 def customer_rent():
