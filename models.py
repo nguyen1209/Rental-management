@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
+import json
 
 db = SQLAlchemy()
 
@@ -31,6 +32,7 @@ class Product(db.Model):
     category = db.Column(db.String(50), nullable=False)
     gender = db.Column(db.String(20), nullable=False, default='unisex')
     sizes = db.Column(db.String(100))
+    variants = db.Column(db.Text)
     description = db.Column(db.Text)
     price_per_day = db.Column(db.Float, nullable=False)
     deposit = db.Column(db.Float, default=0)
@@ -42,7 +44,23 @@ class Product(db.Model):
 
     @property
     def size_list(self):
+        if self.variant_list:
+            return list(dict.fromkeys(item['size'] for item in self.variant_list))
         return [size for size in (self.sizes or '').strip('|').split('|') if size]
+
+    @property
+    def variant_list(self):
+        try:
+            values = json.loads(self.variants or '[]')
+            return values if isinstance(values, list) else []
+        except (TypeError, ValueError):
+            return []
+
+    @property
+    def gender_list(self):
+        if self.variant_list:
+            return list(dict.fromkeys(item['gender'] for item in self.variant_list))
+        return [self.gender or 'unisex']
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -83,5 +101,6 @@ class RentalDetail(db.Model):
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
     selected_size = db.Column(db.String(10))
+    selected_gender = db.Column(db.String(20))
     
     product = db.relationship('Product', backref='rental_details')

@@ -124,14 +124,57 @@ def category_from_form():
     return category
 
 def product_variants_from_form():
-    gender = request.form.get('gender', '').strip().lower()
-    sizes = request.form.getlist('sizes')
-    if gender not in PRODUCT_GENDERS:
-        raise ValueError('Vui lòng chọn phân loại Nam, Nữ hoặc Unisex!')
-    normalized_sizes = [size for size in PRODUCT_SIZES if size in sizes]
-    if not normalized_sizes:
-        raise ValueError('Vui lòng chọn ít nhất một size!')
-    return gender, f"|{'|'.join(normalized_sizes)}|"
+    genders = request.form.getlist('variant_gender[]')
+    sizes = request.form.getlist('variant_size[]')
+    quantities = request.form.getlist('variant_quantity[]')
+    if not genders or len(genders) != len(sizes) or len(sizes) != len(quantities):
+        raise ValueError('Vui lòng nhập ít nhất một biến thể giới tính, size và số lượng!')
+    variants = []
+    seen = set()
+    for gender, size, raw_quantity in zip(genders, sizes, quantities):
+        gender, size = gender.strip().lower(), size.strip().upper()
+        if gender not in PRODUCT_GENDERS or size not in PRODUCT_SIZES:
+            raise ValueError('Phân loại hoặc size không hợp lệ!')
+        try:
+            quantity = int(raw_quantity)
+        except (TypeError, ValueError):
+            raise ValueError('Số lượng của từng biến thể không hợp lệ!')
+        if quantity < 0 or (gender, size) in seen:
+            raise ValueError('Số lượng phải từ 0 và mỗi phân loại-size chỉ được nhập một lần!')
+        seen.add((gender, size))
+        variants.append({'gender': gender, 'size': size, 'quantity': quantity,
+                         'available': quantity})
+    if not any(item['quantity'] for item in variants):
+        raise ValueError('Tổng số lượng sản phẩm phải lớn hơn 0!')
+    return variants
+
+def update_product_variants(product, submitted_variants):
+    old = {(item['gender'], item['size']): item for item in product.variant_list}
+    for item in submitted_variants:
+        previous = old.get((item['gender'], item['size']))
+        rented = max(previous['quantity'] - previous['available'], 0) if previous else 0
+        if item['quantity'] < rented:
+            label = f"{PRODUCT_GENDERS[item['gender']]} - {item['size']}"
+            raise ValueError(f'Không thể giảm {label} dưới {rented} món đang được thuê!')
+        item['available'] = item['quantity'] - rented
+    product.variants = json.dumps(submitted_variants, ensure_ascii=False)
+    product.quantity = sum(item['quantity'] for item in submitted_variants)
+    product.available_quantity = sum(item['available'] for item in submitted_variants)
+    product.gender = 'unisex'
+    product.sizes = '|' + '|'.join(dict.fromkeys(item['size'] for item in submitted_variants)) + '|'
+
+def find_variant(product, gender, size):
+    return next((item for item in product.variant_list
+                 if item['gender'] == gender and item['size'] == size), None)
+
+def restore_detail_inventory(product, detail):
+    variants = product.variant_list
+    variant = next((item for item in variants if item['gender'] == detail.selected_gender
+                    and item['size'] == detail.selected_size), None)
+    if variant:
+        variant['available'] = min(variant['quantity'], variant['available'] + detail.quantity)
+        product.variants = json.dumps(variants, ensure_ascii=False)
+    product.available_quantity = min(product.quantity, product.available_quantity + detail.quantity)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -223,7 +266,9 @@ def customer_rent():
             category_names.extend(child.name for child in selected_node.children)
         product_query = product_query.filter(Product.category.in_(category_names))
     if selected_gender in PRODUCT_GENDERS:
-        product_query = product_query.filter(Product.gender == selected_gender)
+        product_query = product_query.filter(or_(
+            Product.variants.like(f'%"gender": "{selected_gender}"%'),
+            Product.variants.is_(None) & (Product.gender == selected_gender)))
     if selected_size in PRODUCT_SIZES:
         product_query = product_query.filter(Product.sizes.like(f'%|{selected_size}|%'))
     sort_options = {
@@ -269,8 +314,17 @@ def customer_rent():
     if request.endpoint == 'customer_checkout' and request.method == 'GET':
         if not customer_account:
             return redirect(url_for('customer_login', next=url_for('customer_checkout')))
+        variant_catalog = {}
+        for product in Product.query.filter_by(status='active').all():
+            variants = product.variant_list
+            if not variants:
+                variants = [{'gender': product.gender or 'unisex', 'size': size,
+                             'available': product.available_quantity}
+                            for size in product.size_list]
+            variant_catalog[str(product.id)] = variants
         return render_template('customer/checkout.html', customer_account=customer_account,
-                               filter_start_str=filter_start_str, filter_end_str=filter_end_str)
+                               filter_start_str=filter_start_str, filter_end_str=filter_end_str,
+                               variant_catalog=variant_catalog)
 
     if request.method == 'POST':
         if not customer_account:
@@ -301,6 +355,7 @@ def customer_rent():
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
         selected_sizes = request.form.getlist('size[]')
+        selected_genders = request.form.getlist('gender[]')
         item_start_dates = request.form.getlist('item_start_date[]')
         item_end_dates = request.form.getlist('item_end_date[]')
         # Gom các dòng trùng sản phẩm và luôn kiểm tra tồn kho ở máy chủ.
@@ -315,7 +370,8 @@ def customer_rent():
                 if quantity <= 0:
                     raise ValueError('Số lượng thuê phải lớn hơn 0!')
                 chosen_size = selected_sizes[index].strip().upper() if index < len(selected_sizes) else ''
-                cart_key = (pid, chosen_size)
+                chosen_gender = selected_genders[index].strip().lower() if index < len(selected_genders) else ''
+                cart_key = (pid, chosen_gender, chosen_size)
                 cart[cart_key] = cart.get(cart_key, 0) + quantity
                 raw_start = item_start_dates[index] if index < len(item_start_dates) else ''
                 raw_end = item_end_dates[index] if index < len(item_end_dates) else ''
@@ -364,18 +420,21 @@ def customer_rent():
 
         total_amount = 0
         try:
-            for (product_id, chosen_size), quantity in cart.items():
+            for (product_id, chosen_gender, chosen_size), quantity in cart.items():
                 product = Product.query.filter_by(id=product_id, status='active').first()
                 if not product:
                     raise ValueError('Có sản phẩm không còn khả dụng!')
 
-                if quantity > product.available_quantity:
-                    raise ValueError(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!')
+                product_variants = product.variant_list
+                variant = next((item for item in product_variants
+                                if item['gender'] == chosen_gender and item['size'] == chosen_size), None)
+                available = variant['available'] if variant else product.available_quantity
+                if product.variant_list and not variant:
+                    raise ValueError(f'Vui lòng chọn phân loại và size hợp lệ cho {product.name}!')
+                if quantity > available:
+                    raise ValueError(f'Sản phẩm {product.name} bản {PRODUCT_GENDERS.get(chosen_gender, chosen_gender)} - {chosen_size} chỉ còn {available}!')
 
-                if product.size_list and chosen_size not in product.size_list:
-                    raise ValueError(f'Vui lòng chọn size hợp lệ cho {product.name}!')
-
-                detail_start, detail_end = item_schedules[(product_id, chosen_size)]
+                detail_start, detail_end = item_schedules[(product_id, chosen_gender, chosen_size)]
                 detail_days = (detail_end - detail_start).days
                 subtotal = product.price_per_day * detail_days * quantity
                 total_amount += subtotal
@@ -389,9 +448,13 @@ def customer_rent():
                     subtotal=subtotal,
                     start_date=detail_start,
                     end_date=detail_end,
-                    selected_size=chosen_size or None
+                    selected_size=chosen_size or None,
+                    selected_gender=chosen_gender or None
                 )
                 db.session.add(detail)
+                if variant:
+                    variant['available'] -= quantity
+                    product.variants = json.dumps(product_variants, ensure_ascii=False)
                 product.available_quantity -= quantity
 
             rental.total_amount = total_amount
@@ -657,7 +720,7 @@ def add_product():
         
         try:
             category = category_from_form()
-            gender, sizes = product_variants_from_form()
+            variants = product_variants_from_form()
         except ValueError as exc:
             flash(str(exc), 'danger')
             return redirect(url_for('add_product'))
@@ -666,8 +729,7 @@ def add_product():
             name = request.form.get('name', '').strip()
             price_per_day = float(request.form.get('price_per_day', ''))
             deposit = float(request.form.get('deposit') or 0)
-            quantity = int(request.form.get('quantity', ''))
-            if not name or price_per_day < 0 or deposit < 0 or quantity < 0:
+            if not name or price_per_day < 0 or deposit < 0:
                 raise ValueError
         except (TypeError, ValueError):
             db.session.rollback()
@@ -677,16 +739,13 @@ def add_product():
         product = Product(
             name=name,
             category=category,
-            gender=gender,
-            sizes=sizes,
             description=request.form.get('description', ''),
             price_per_day=price_per_day,
             deposit=deposit,
-            quantity=quantity,
-            available_quantity=quantity,
             image_url=image_url if image_url else None,
             status='active'
         )
+        update_product_variants(product, variants)
         db.session.add(product)
         db.session.commit()
         flash('Thêm sản phẩm thành công!', 'success')
@@ -704,21 +763,18 @@ def edit_product(id):
         product.name = request.form['name']
         try:
             product.category = category_from_form()
-            product.gender, product.sizes = product_variants_from_form()
+            variants = product_variants_from_form()
         except ValueError as exc:
             flash(str(exc), 'danger')
             return redirect(url_for('edit_product', id=id))
         product.description = request.form.get('description', '')
         product.price_per_day = float(request.form['price_per_day'])
         product.deposit = float(request.form.get('deposit', 0))
-        old_quantity = product.quantity
-        new_quantity = int(request.form['quantity'])
-        rented_quantity = max(old_quantity - product.available_quantity, 0)
-        if new_quantity < rented_quantity:
-            flash(f'Không thể giảm kho dưới {rented_quantity} món đang được thuê!', 'danger')
+        try:
+            update_product_variants(product, variants)
+        except ValueError as exc:
+            flash(str(exc), 'danger')
             return redirect(url_for('edit_product', id=id))
-        product.quantity = new_quantity
-        product.available_quantity = new_quantity - rented_quantity
         
         try:
             product.image_url = product_image_from_request(product.image_url)
@@ -820,6 +876,7 @@ def add_rental():
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
         selected_sizes = request.form.getlist('size[]')
+        selected_genders = request.form.getlist('gender[]')
         item_start_dates = request.form.getlist('item_start_date[]')
         item_end_dates = request.form.getlist('item_end_date[]')
         
@@ -862,12 +919,17 @@ def add_rental():
                 return redirect(url_for('add_rental'))
 
             chosen_size = selected_sizes[i].strip().upper() if i < len(selected_sizes) else ''
-            if product.size_list and chosen_size not in product.size_list:
-                flash(f'Vui lòng chọn size hợp lệ cho {product.name}!', 'danger')
+            chosen_gender = selected_genders[i].strip().lower() if i < len(selected_genders) else ''
+            product_variants = product.variant_list
+            variant = next((item for item in product_variants
+                            if item['gender'] == chosen_gender and item['size'] == chosen_size), None)
+            if product_variants and not variant:
+                flash(f'Vui lòng chọn phân loại và size hợp lệ cho {product.name}!', 'danger')
                 db.session.rollback()
                 return redirect(url_for('add_rental'))
             
-            if quantity > product.available_quantity:
+            available = variant['available'] if variant else product.available_quantity
+            if quantity > available:
                 flash(f'Sản phẩm {product.name} chỉ còn {product.available_quantity}!', 'danger')
                 db.session.rollback()
                 return redirect(url_for('add_rental'))
@@ -910,10 +972,14 @@ def add_rental():
                 subtotal=subtotal,
                 start_date=detail_start,
                 end_date=detail_end,
-                selected_size=chosen_size or None
+                selected_size=chosen_size or None,
+                selected_gender=chosen_gender or None
             )
             db.session.add(detail)
             
+            if variant:
+                variant['available'] -= quantity
+                product.variants = json.dumps(product_variants, ensure_ascii=False)
             product.available_quantity -= quantity
         
         rental.total_amount = total_amount
@@ -941,7 +1007,7 @@ def return_rental(id):
     for detail in rental.details:
         product = Product.query.get(detail.product_id)
         if product:
-            product.available_quantity += detail.quantity
+            restore_detail_inventory(product, detail)
     
     db.session.commit()
     flash('Đã xác nhận trả hàng!', 'success')
@@ -970,7 +1036,7 @@ def cancel_rental(id):
         for detail in rental.details:
             product = Product.query.get(detail.product_id)
             if product:
-                product.available_quantity += detail.quantity
+                restore_detail_inventory(product, detail)
         
         db.session.commit()
         flash(f'Đã hủy đơn thuê {rental.rental_code}!', 'success')
@@ -1287,6 +1353,8 @@ def init_db():
             db.session.execute(text("ALTER TABLE product ADD COLUMN gender VARCHAR(20) DEFAULT 'unisex'"))
         if 'sizes' not in product_columns:
             db.session.execute(text('ALTER TABLE product ADD COLUMN sizes VARCHAR(100)'))
+        if 'variants' not in product_columns:
+            db.session.execute(text('ALTER TABLE product ADD COLUMN variants TEXT'))
         detail_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental_detail)')).fetchall()]
         if 'start_date' not in detail_columns:
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN start_date DATETIME'))
@@ -1294,6 +1362,8 @@ def init_db():
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN end_date DATETIME'))
         if 'selected_size' not in detail_columns:
             db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN selected_size VARCHAR(10)'))
+        if 'selected_gender' not in detail_columns:
+            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN selected_gender VARCHAR(20)'))
         rental_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental)')).fetchall()]
         if 'payment_method' not in rental_columns:
             db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_method VARCHAR(20) DEFAULT 'cash'"))
