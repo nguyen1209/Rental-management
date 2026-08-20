@@ -13,6 +13,7 @@ import math
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from sqlalchemy import func, desc, text, or_
+from sqlalchemy.engine import URL
 
 from models import db, Admin, Customer, Product, Category, Rental, RentalDetail
 
@@ -26,7 +27,18 @@ PRODUCT_SIZES = ('XS', 'S', 'M', 'L', 'XL', 'XXL')
 
 # Cấu hình
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///rental.db')
+if os.environ.get('DB_HOST'):
+    database_url = URL.create(
+        'postgresql+psycopg',
+        username=os.environ.get('DB_USER', 'rental'),
+        password=os.environ.get('DB_PASSWORD', ''),
+        host=os.environ['DB_HOST'],
+        port=int(os.environ.get('DB_PORT', '5432')),
+        database=os.environ.get('DB_NAME', 'rental'),
+    )
+else:
+    database_url = os.environ.get('DATABASE_URL', 'sqlite:///rental.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Cấu hình upload
@@ -126,23 +138,28 @@ def category_from_form():
 
 def product_variants_from_form():
     genders = request.form.getlist('variant_gender[]')
+    sizes = request.form.getlist('variant_size[]')
     quantities = request.form.getlist('variant_quantity[]')
-    if not genders or len(genders) != len(quantities):
-        raise ValueError('Vui lòng nhập ít nhất một phân loại Nam/Nữ và số lượng!')
+    if not genders or len(genders) != len(sizes) or len(genders) != len(quantities):
+        raise ValueError('Vui lòng nhập đủ số lượng cho 6 size của từng phân loại!')
     variants = []
     seen = set()
-    for gender, raw_quantity in zip(genders, quantities):
+    for gender, size, raw_quantity in zip(genders, sizes, quantities):
         gender = gender.strip().lower()
+        size = size.strip().upper()
         if gender not in PRODUCT_GENDERS:
             raise ValueError('Phân loại không hợp lệ!')
+        if size not in PRODUCT_SIZES:
+            raise ValueError('Size không hợp lệ!')
         try:
             quantity = int(raw_quantity)
         except (TypeError, ValueError):
             raise ValueError('Số lượng của từng biến thể không hợp lệ!')
-        if quantity < 0 or gender in seen:
-            raise ValueError('Số lượng phải từ 0 và mỗi phân loại chỉ được nhập một lần!')
-        seen.add(gender)
-        variants.append({'gender': gender, 'size': '', 'quantity': quantity,
+        key = (gender, size)
+        if quantity < 0 or key in seen:
+            raise ValueError('Số lượng phải từ 0 và mỗi phân loại/size chỉ được nhập một lần!')
+        seen.add(key)
+        variants.append({'gender': gender, 'size': size, 'quantity': quantity,
                          'available': quantity})
     if not any(item['quantity'] for item in variants):
         raise ValueError('Tổng số lượng sản phẩm phải lớn hơn 0!')
@@ -151,15 +168,16 @@ def product_variants_from_form():
 def update_product_variants(product, submitted_variants):
     old = {}
     for item in product.variant_list:
-        previous = old.setdefault(item['gender'], {'quantity': 0, 'available': 0})
+        key = (item['gender'], item.get('size') or 'M')
+        previous = old.setdefault(key, {'quantity': 0, 'available': 0})
         previous['quantity'] += item['quantity']
         previous['available'] += item['available']
     for item in submitted_variants:
-        previous = old.get(item['gender'])
+        previous = old.get((item['gender'], item['size']))
         rented = max(previous['quantity'] - previous['available'], 0) if previous else 0
         if item['quantity'] < rented:
             label = PRODUCT_GENDERS[item['gender']]
-            raise ValueError(f'Không thể giảm {label} dưới {rented} món đang được thuê!')
+            raise ValueError(f'Không thể giảm {label} size {item["size"]} dưới {rented} món đang được thuê!')
         item['available'] = item['quantity'] - rented
     product.variants = json.dumps(submitted_variants, ensure_ascii=False)
     product.quantity = sum(item['quantity'] for item in submitted_variants)
@@ -1403,6 +1421,22 @@ def export_pdf():
 def init_db():
     with app.app_context():
         db.create_all()
+        if db.engine.dialect.name != 'sqlite':
+            admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+            existing_admin = Admin.query.filter_by(username=admin_username).first()
+            if not existing_admin:
+                db.session.add(Admin(
+                    username=admin_username,
+                    password=generate_password_hash(admin_password),
+                    email='admin@example.com',
+                    fullname='Administrator'
+                ))
+            elif os.environ.get('ADMIN_PASSWORD'):
+                existing_admin.password = generate_password_hash(admin_password)
+            db.session.commit()
+            print(f"PostgreSQL database initialized for admin: {admin_username}")
+            return
         # Bổ sung cột cho database cũ mà không làm mất dữ liệu.
         columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(customer)')).fetchall()]
         if 'password_hash' not in columns:
