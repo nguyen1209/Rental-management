@@ -227,7 +227,8 @@ class RentalAppTestCase(unittest.TestCase):
             response = self.client.post('/add-product', data={
                 '_csrf_token': self.csrf('/add-product'), 'name': 'Ảnh từ điện thoại',
                 'category': 'Quần áo', 'price_per_day': '100000', 'deposit': '0',
-                'variant_gender[]': ['unisex'], 'variant_quantity[]': ['1'],
+                'variant_gender[]': ['unisex'], 'variant_size[]': ['M'],
+                'variant_quantity[]': ['1'],
                 'image_url': 'https://example.com/old.jpg',
                 'camera_image': (io.BytesIO(b'phone-photo'), 'camera.jpg')},
                 content_type='multipart/form-data')
@@ -268,6 +269,7 @@ class RentalAppTestCase(unittest.TestCase):
             '_csrf_token': self.csrf('/add-product'), 'name': 'Trang phục đôi',
             'category': 'Biểu diễn', 'price_per_day': '200000', 'deposit': '0',
             'variant_gender[]': ['male', 'female'],
+            'variant_size[]': ['M', 'S'],
             'variant_quantity[]': ['5', '4']})
         self.assertEqual(response.status_code, 302)
         with app.app_context():

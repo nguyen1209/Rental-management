@@ -66,7 +66,7 @@
                 <td>
                     <span class="badge bg-info">{{ product.category }}</span>
                 </td>
-                <td>{% if product.variant_list %}{% for variant in product.variant_list %}<small class="d-block">{{ product_genders.get(variant.gender, variant.gender) }}: còn {{ variant.available }}/{{ variant.quantity }}</small>{% endfor %}{% else %}{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}{% endif %}</td>
+                <td>{% if product.variant_list %}{% for variant in product.variant_list if variant.quantity > 0 %}<small class="d-block">{{ product_genders.get(variant.gender, variant.gender) }}{% if variant.size %} · {{ variant.size }}{% endif %}: còn {{ variant.available }}/{{ variant.quantity }}</small>{% endfor %}{% else %}{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}{% endif %}</td>
                 <td>{{ "{:,.0f}".format(product.price_per_day) }} VNĐ</td>
                 <td>{{ "{:,.0f}".format(product.deposit) }} VNĐ</td>
                 <td>{{ product.quantity }}</td>

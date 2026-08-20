@@ -1,0 +1,37 @@
+{% set groups = product.size_inventory_groups if product is defined else [{'gender': 'male', 'sizes': {}}] %}
+<div class="col-12 mb-3">
+  <label class="form-label fw-bold">Phân loại, size và số lượng *</label>
+  <div id="variantGroups" class="d-grid gap-3">
+    {% for group in groups %}
+    <div class="variant-group border rounded p-3">
+      <div class="d-flex gap-2 align-items-center mb-3">
+        <select class="form-select variant-gender" aria-label="Nam/Nữ" required>
+          {% for value, label in genders.items() %}<option value="{{ value }}" {{ 'selected' if value == group.gender }}>{{ label }}</option>{% endfor %}
+        </select>
+        <button type="button" class="btn btn-outline-danger remove-variant">×</button>
+      </div>
+      <div class="size-inventory-grid">
+        {% for size in sizes %}
+        {% set size_stock = group.sizes.get(size, {}) %}
+        <label class="size-inventory-row"><b>{{ size }}</b>
+          <input type="hidden" name="variant_gender[]" value="{{ group.gender }}">
+          <input type="hidden" name="variant_size[]" value="{{ size }}">
+          <input type="number" name="variant_quantity[]" class="form-control" min="0" value="{{ size_stock.get('quantity', 0) }}" data-rented="{{ size_stock.get('quantity', 0) - size_stock.get('available', 0) }}" required aria-label="Tổng số lượng size {{ size }}">
+          <small class="size-available">Còn lại: {{ size_stock.get('available', 0) }}</small>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <button type="button" id="addVariant" class="btn btn-outline-primary mt-2">+ Thêm Nam/Nữ</button>
+  <small class="d-block mt-2 text-muted">Nhập số lượng riêng cho từng size XS, S, M, L, XL, XXL. Size không có hàng nhập 0.</small>
+</div>
+<style>.size-inventory-grid{display:grid;grid-template-columns:repeat(6,minmax(82px,1fr));gap:10px}.size-inventory-row{display:grid;gap:6px;text-align:center}.size-available{color:#55705d;font-weight:700}.variant-gender{max-width:280px}@media(max-width:700px){.size-inventory-grid{grid-template-columns:repeat(3,1fr)}}</style>
+<script>
+const variantGroups=document.getElementById('variantGroups');
+function syncInventoryGroup(group){const gender=group.querySelector('.variant-gender').value;group.querySelectorAll('[name="variant_gender[]"]').forEach(input=>input.value=gender)}
+function updateAvailable(input){const rented=Number(input.dataset.rented)||0,total=Math.max(0,Number(input.value)||0);input.closest('.size-inventory-row').querySelector('.size-available').textContent='Còn lại: '+Math.max(0,total-rented)}
+function bindInventoryGroups(){variantGroups.querySelectorAll('.variant-group').forEach(group=>{group.querySelector('.variant-gender').onchange=()=>syncInventoryGroup(group);group.querySelectorAll('[name="variant_quantity[]"]').forEach(input=>{input.oninput=()=>updateAvailable(input);updateAvailable(input)});group.querySelector('.remove-variant').onclick=()=>{if(variantGroups.children.length>1)group.remove()};syncInventoryGroup(group)})}
+document.getElementById('addVariant').onclick=()=>{const group=variantGroups.firstElementChild.cloneNode(true);group.querySelector('.variant-gender').selectedIndex=0;group.querySelectorAll('[name="variant_quantity[]"]').forEach(input=>{input.value=0;input.dataset.rented=0});variantGroups.appendChild(group);bindInventoryGroups()};bindInventoryGroups();
+</script>

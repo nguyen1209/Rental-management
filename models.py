@@ -67,12 +67,28 @@ class Product(db.Model):
 
     @property
     def selectable_variants(self):
+        sized = [item for item in self.variant_list if item.get('size')]
+        if sized:
+            return [{'gender': item['gender'], 'size': item['size'],
+                     'available': item['available'], 'shared': False} for item in sized]
         options = []
         for item in self.gender_inventory:
             for size in PRODUCT_SIZE_VALUES:
                 options.append({'gender': item['gender'], 'size': size,
-                                'available': item['available']})
+                                'available': item['available'], 'shared': True})
         return options
+
+    @property
+    def size_inventory_groups(self):
+        groups = {}
+        for item in self.variant_list:
+            gender = item.get('gender') or 'unisex'
+            group = groups.setdefault(gender, {'gender': gender, 'sizes': {}})
+            size = item.get('size') or 'M'
+            current = group['sizes'].setdefault(size, {'quantity': 0, 'available': 0})
+            current['quantity'] += item.get('quantity', 0)
+            current['available'] += item.get('available', 0)
+        return list(groups.values())
 
     @property
     def gender_inventory(self):

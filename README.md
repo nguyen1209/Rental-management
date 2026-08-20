@@ -5,12 +5,21 @@
 ## Chạy bằng Docker
 
 1. Sao chép `.env.example` thành `.env`.
-2. Đặt `SECRET_KEY` ngẫu nhiên dài và mật khẩu quản trị mạnh.
+2. Đặt `SECRET_KEY`, `ADMIN_PASSWORD` và `POSTGRES_PASSWORD` thành các giá trị mạnh.
 3. Chạy `docker compose up --build -d`.
 4. Mở trang khách tại `http://127.0.0.1:8000/rent` và trang quản trị tại
    `http://127.0.0.1:8000/admin`.
 
-Dữ liệu được lưu trong `data/`; ảnh tải lên được lưu trong `uploads/`.
+Docker sử dụng PostgreSQL và lưu dữ liệu trong volume `postgres_data`; ảnh tải lên
+được lưu trong `uploads/`. Lần chạy đầu tiên sẽ tạo một database trống và tài khoản
+admin từ `.env`.
+
+Kiểm tra PostgreSQL:
+
+```bash
+docker compose ps
+docker compose exec postgres psql -U rental -d rental -c "SELECT count(*) FROM product;"
+```
 
 ## Chạy cục bộ
 
