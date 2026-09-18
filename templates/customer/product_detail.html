@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} — TPBD Phương Lan{% endblock %}
+{% block content %}
+<script type="application/ld+json">{{ {'@context':'https://schema.org','@type':'Product','name':product.name,'description':product.description or 'Trang phục biểu diễn cho thuê','image':product.image_url or None,'category':product.category,'offers':{'@type':'Offer','price':product.price_per_day,'priceCurrency':'VND','availability':'https://schema.org/InStock' if product.available_quantity > 0 else 'https://schema.org/OutOfStock','url':config.PUBLIC_BASE_URL + url_for('customer_product_detail', id=product.id)}}|tojson }}</script>
+<main class="product-detail-page">
+  <nav class="product-breadcrumb" aria-label="Đường dẫn">
+    <a href="{{ url_for('customer_rent') }}">Cửa hàng</a><span>/</span>
+    <a href="{{ url_for('customer_rent', category=product.category, view='catalog') }}">{{ product.category }}</a><span>/</span>
+    <span>{{ product.name }}</span>
+  </nav>
+  <section class="product-detail-grid">
+    <div class="product-detail-image">
+      {% if product.image_url %}<img src="{{ product.image_url }}" alt="{{ product.name }}" width="720" height="900">{% else %}<i class="fa-solid fa-box-open"></i>{% endif %}
+    </div>
+    <div class="product-detail-copy">
+      <span class="eyebrow">{{ product.category }}</span>
+      <h1>{{ product.name }}</h1>
+      <p class="product-detail-price">{{ '{:,.0f}'.format(product.price_per_day) }}đ <small>/ ngày</small></p>
+      <p>{{ product.description or 'Sản phẩm được kiểm tra, vệ sinh và chuẩn bị kỹ trước mỗi lần giao.' }}</p>
+      <dl><div><dt>Tiền cọc</dt><dd>{{ '{:,.0f}'.format(product.deposit or 0) }}đ</dd></div><div><dt>Tổng còn</dt><dd>{{ product.available_quantity }} món</dd></div></dl>
+      <label class="product-detail-variant">Chọn phân loại và size
+        <select id="detailVariant" class="form-select">
+          {% for variant in product.selectable_variants if variant.available > 0 %}
+          <option value="{{ variant.gender }}|{{ variant.size }}" data-stock="{{ variant.available }}">{{ product_genders.get(variant.gender, variant.gender) }} · Size {{ variant.size }} · Còn {{ variant.available }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button id="detailAddCart" class="submit-order" type="button" data-id="{{ product.id }}" data-name="{{ product.name }}" data-price="{{ product.price_per_day }}"><i class="fa-solid fa-cart-plus"></i> Thêm vào giỏ</button>
+      <a class="product-contact" href="tel:0983469493"><i class="fa-solid fa-phone"></i> Tư vấn: 0983 469 493</a>
+      {% if booked_periods %}<div class="booked-periods"><h2>Lịch đã được đặt gần đây</h2>{% for start, end, quantity in booked_periods %}<span>{{ start.strftime('%d/%m/%Y') }} – {{ end.strftime('%d/%m/%Y') }} · {{ quantity }} món</span>{% endfor %}</div>{% endif %}
+    </div>
+  </section>
+  {% if related %}<section class="related-products"><h2>Sản phẩm cùng danh mục</h2><div>{% for item in related %}<a href="{{ url_for('customer_product_detail', id=item.id) }}">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" width="300" height="360">{% endif %}<b>{{ item.name }}</b><span>{{ '{:,.0f}'.format(item.price_per_day) }}đ/ngày</span></a>{% endfor %}</div></section>{% endif %}
+</main>
+<script>
+const detailButton=document.getElementById('detailAddCart'),detailVariant=document.getElementById('detailVariant');
+detailButton?.addEventListener('click',()=>{if(!detailVariant?.value)return alert('Sản phẩm hiện đã hết hàng.');const option=detailVariant.selectedOptions[0],[gender,size]=option.value.split('|'),stock=Number(option.dataset.stock),key=`${detailButton.dataset.id}:${gender}:${size}`,storageKey='phuongLanRentalCart';let cart={};try{cart=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch(error){}const current=cart[key];if(current&&current.qty>=stock)return alert('Bạn đã chọn tối đa số lượng còn trong kho.');cart[key]=current?{...current,qty:current.qty+1}:{productId:detailButton.dataset.id,name:detailButton.dataset.name,gender,genderLabel:option.textContent.split('·')[0].trim(),size,price:Number(detailButton.dataset.price),stock,qty:1};localStorage.setItem(storageKey,JSON.stringify(cart));detailButton.innerHTML='<i class="fa-solid fa-check"></i> Đã thêm vào giỏ';setTimeout(()=>detailButton.innerHTML='<i class="fa-solid fa-cart-plus"></i> Thêm vào giỏ',1200)});
+</script>
+{% endblock %}

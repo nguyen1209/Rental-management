@@ -1,15 +1,20 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, Response, g
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.wsgi import FileWrapper
 from datetime import datetime, timedelta
+from collections import defaultdict, deque
 import calendar
 import secrets
 import os
 import json
 import math
+import logging
+import shutil
+import time
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from sqlalchemy import func, desc, text, or_
@@ -40,6 +45,12 @@ else:
     database_url = os.environ.get('DATABASE_URL', 'sqlite:///rental.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', '0') == '1',
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+)
 
 # Cấu hình upload
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'static/uploads')
@@ -51,12 +62,22 @@ app.config['BANK_ACCOUNT'] = os.environ.get('BANK_ACCOUNT', '').strip()
 app.config['BANK_ACCOUNT_NAME'] = os.environ.get('BANK_ACCOUNT_NAME', '').strip().upper()
 app.config['PUBLIC_BASE_URL'] = os.environ.get(
     'PUBLIC_BASE_URL', 'https://trangphucbieudienphuonglan.io.vn').rstrip('/')
+app.config['ANALYTICS_ID'] = os.environ.get('ANALYTICS_ID', '').strip()
+app.config['MIN_FREE_DISK_MB'] = int(os.environ.get('MIN_FREE_DISK_MB', '512'))
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'INFO'),
+                    format='%(asctime)s %(levelname)s %(message)s')
+
 db.init_app(app)
+migrate = Migrate(app, db)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+LOGIN_WINDOW_SECONDS = 15 * 60
+LOGIN_MAX_FAILURES = 5
+_login_failures = defaultdict(deque)
 
 @app.context_processor
 def inject_csrf_token():
@@ -81,11 +102,17 @@ def inject_csrf_token():
             info['qr_url'] = (f"https://img.vietqr.io/image/{info['bank_code']}-"
                               f"{info['account']}-compact2.png?{query}")
         return info
+    def pagination_url(page):
+        values = request.args.to_dict()
+        values['page'] = page
+        return url_for(request.endpoint, **values)
     return {'csrf_token': csrf_token, 'bank_transfer': bank_transfer,
-            'product_genders': PRODUCT_GENDERS, 'product_sizes': PRODUCT_SIZES}
+            'pagination_url': pagination_url, 'product_genders': PRODUCT_GENDERS,
+            'product_sizes': PRODUCT_SIZES}
 
 @app.before_request
 def protect_post_requests():
+    g.request_started_at = time.perf_counter()
     if request.method == 'POST':
         expected = session.get('_csrf_token', '')
         supplied = request.form.get('_csrf_token', '') or request.headers.get('X-CSRF-Token', '')
@@ -97,10 +124,65 @@ def add_security_headers(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    duration_ms = round((time.perf_counter() - getattr(g, 'request_started_at', time.perf_counter())) * 1000, 1)
+    app.logger.info(json.dumps({'event': 'request', 'method': request.method,
+                                'path': request.path, 'status': response.status_code,
+                                'duration_ms': duration_ms}, ensure_ascii=False))
     return response
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    app.logger.exception('Unhandled application error', exc_info=error)
+    return render_template('errors/500.html'), 500
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def validated_image_extension(file):
+    """Return the real image extension after checking the file signature."""
+    header = file.stream.read(32)
+    file.stream.seek(0)
+    signatures = (
+        (b'\x89PNG\r\n\x1a\n', 'png'),
+        (b'\xff\xd8\xff', 'jpg'),
+        (b'GIF87a', 'gif'),
+        (b'GIF89a', 'gif'),
+        (b'RIFF', 'webp'),
+    )
+    detected = next((extension for signature, extension in signatures
+                     if header.startswith(signature)), None)
+    if detected == 'webp' and header[8:12] != b'WEBP':
+        detected = None
+    declared = secure_filename(file.filename).rsplit('.', 1)[-1].lower()
+    if declared == 'jpeg':
+        declared = 'jpg'
+    if not detected or declared != detected:
+        raise ValueError('Tệp tải lên không phải là ảnh hợp lệ hoặc sai phần mở rộng.')
+    return detected
+
+def login_rate_key(scope):
+    return f"{scope}:{request.remote_addr or 'unknown'}"
+
+def login_is_limited(scope):
+    now = datetime.now().timestamp()
+    attempts = _login_failures[login_rate_key(scope)]
+    while attempts and now - attempts[0] > LOGIN_WINDOW_SECONDS:
+        attempts.popleft()
+    return len(attempts) >= LOGIN_MAX_FAILURES
+
+def record_login_failure(scope):
+    _login_failures[login_rate_key(scope)].append(datetime.now().timestamp())
+
+def clear_login_failures(scope):
+    _login_failures.pop(login_rate_key(scope), None)
+
+def locked_active_product(product_id):
+    """Lock inventory rows on PostgreSQL until the current transaction finishes."""
+    query = Product.query.filter_by(id=product_id, status='active')
+    if db.engine.dialect.name == 'postgresql':
+        query = query.with_for_update()
+    return query.first()
 
 def product_image_from_request(current_url=None):
     """Save a camera/gallery upload, falling back to an explicitly supplied URL."""
@@ -108,7 +190,7 @@ def product_image_from_request(current_url=None):
     if file and file.filename:
         if not allowed_file(file.filename) or not (file.mimetype or '').startswith('image/'):
             raise ValueError('Ảnh phải có định dạng PNG, JPG, JPEG, GIF hoặc WEBP.')
-        extension = secure_filename(file.filename).rsplit('.', 1)[1].lower()
+        extension = validated_image_extension(file)
         filename = f"product_{secrets.token_hex(10)}.{extension}"
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         return url_for('static', filename=f'uploads/{filename}')
@@ -213,9 +295,14 @@ def index():
 def health():
     try:
         db.session.execute(text('SELECT 1'))
-        return {'status': 'ok'}, 200
-    except Exception:
-        return {'status': 'unhealthy'}, 503
+        free_mb = shutil.disk_usage(app.config['UPLOAD_FOLDER']).free // (1024 * 1024)
+        healthy = free_mb >= app.config['MIN_FREE_DISK_MB']
+        return {'status': 'ok' if healthy else 'degraded', 'database': 'ok',
+                'upload_disk_free_mb': free_mb}, 200 if healthy else 503
+    except Exception as exc:
+        app.logger.exception('Health check failed')
+        return {'status': 'unhealthy', 'database': 'error',
+                'error': type(exc).__name__}, 503
 
 @app.route('/robots.txt')
 def robots_txt():
@@ -235,6 +322,9 @@ def robots_txt():
 @app.route('/sitemap.xml')
 def sitemap_xml():
     base_url = app.config['PUBLIC_BASE_URL']
+    product_urls = ''.join(
+        f'''  <url><loc>{base_url}{url_for('customer_product_detail', id=product.id)}</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>\n'''
+        for product in Product.query.filter_by(status='active').order_by(Product.id).all())
     content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -242,6 +332,7 @@ def sitemap_xml():
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
+{product_urls}
 </urlset>
 '''
     return Response(content, mimetype='application/xml')
@@ -316,7 +407,11 @@ def customer_rent():
         'name': Product.name.asc(),
         'newest': Product.created_at.desc()
     }
-    raw_products = product_query.order_by(sort_options.get(sort, sort_options['newest'])).all()
+    page = request.args.get('page', 1, type=int)
+    pagination = product_query.order_by(
+        sort_options.get(sort, sort_options['newest'])
+    ).paginate(page=page, per_page=12, error_out=False)
+    raw_products = pagination.items
 
     # Tính toán tồn rảnh hiệu lực theo khoảng thời gian nếu người dùng chọn ngày
     booked_quantities = {}
@@ -460,7 +555,7 @@ def customer_rent():
         total_amount = 0
         try:
             for (product_id, chosen_gender, chosen_size), quantity in cart.items():
-                product = Product.query.filter_by(id=product_id, status='active').first()
+                product = locked_active_product(product_id)
                 if not product:
                     raise ValueError('Có sản phẩm không còn khả dụng!')
 
@@ -511,7 +606,27 @@ def customer_rent():
                            selected_gender=selected_gender, selected_size=selected_size,
                            customer_account=customer_account, sort=sort,
                            category_roots=category_roots,
+                           pagination=pagination,
                            filter_start_str=filter_start_str, filter_end_str=filter_end_str)
+
+@app.route('/san-pham/<int:id>')
+def customer_product_detail(id):
+    product = Product.query.filter_by(id=id, status='active').first_or_404()
+    booked_periods = (db.session.query(RentalDetail.start_date, RentalDetail.end_date,
+                                       RentalDetail.quantity)
+                      .join(Rental)
+                      .filter(RentalDetail.product_id == product.id,
+                              Rental.status.in_(['pending', 'rented']),
+                              RentalDetail.end_date >= datetime.now())
+                      .order_by(RentalDetail.start_date.asc()).limit(12).all())
+    related = (Product.query.filter(Product.status == 'active',
+                                    Product.category == product.category,
+                                    Product.id != product.id)
+               .order_by(Product.created_at.desc()).limit(4).all())
+    customer_account = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
+    return render_template('customer/product_detail.html', product=product,
+                           booked_periods=booked_periods, related=related,
+                           customer_account=customer_account)
 
 @app.route('/customer/register', methods=['GET', 'POST'])
 def customer_register():
@@ -549,15 +664,21 @@ def customer_login():
     if session.get('customer_id'):
         return redirect(destination)
     if request.method == 'POST':
+        if login_is_limited('customer'):
+            flash('Đăng nhập tạm khóa do có quá nhiều lần thử. Vui lòng thử lại sau 15 phút.', 'danger')
+            return render_template('customer/customer_login.html'), 429
         phone = request.form.get('phone', '').strip()
         customer = Customer.query.filter_by(phone=phone).first()
         if customer and customer.password_hash and check_password_hash(customer.password_hash, request.form.get('password', '')):
+            clear_login_failures('customer')
+            session.clear()
             session['customer_id'] = customer.id
             return redirect(destination)
+        record_login_failure('customer')
         flash('Số điện thoại hoặc mật khẩu không đúng.', 'danger')
     return render_template('customer/customer_login.html')
 
-@app.route('/customer/logout')
+@app.route('/customer/logout', methods=['POST'])
 def customer_logout():
     session.pop('customer_id', None)
     flash('Bạn đã đăng xuất.', 'info')
@@ -597,7 +718,11 @@ def submit_payment_proof(id):
         flash('Ảnh giao dịch phải có định dạng PNG, JPG, JPEG, GIF hoặc WEBP.', 'danger')
         return redirect(url_for('customer_orders'))
 
-    extension = secure_filename(receipt.filename).rsplit('.', 1)[1].lower()
+    try:
+        extension = validated_image_extension(receipt)
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('customer_orders'))
     filename = f"receipt_{rental.id}_{secrets.token_hex(8)}.{extension}"
     receipt_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'payment_receipts')
     os.makedirs(receipt_folder, exist_ok=True)
@@ -614,21 +739,27 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
     if request.method == 'POST':
+        if login_is_limited('admin'):
+            flash('Đăng nhập tạm khóa do có quá nhiều lần thử. Vui lòng thử lại sau 15 phút.', 'danger')
+            return render_template('admin/login.html'), 429
         username = request.form['username']
         password = request.form['password']
         
         admin = Admin.query.filter_by(username=username).first()
         
         if admin and check_password_hash(admin.password, password):
+            clear_login_failures('admin')
+            session.clear()
             login_user(admin)
             flash('Đăng nhập thành công!', 'success')
             return redirect(url_for('dashboard'))
         else:
+            record_login_failure('admin')
             flash('Sai tên đăng nhập hoặc mật khẩu!', 'danger')
     
     return render_template('admin/login.html')
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
@@ -659,8 +790,10 @@ def dashboard():
 @app.route('/customers')
 @login_required
 def customers():
-    all_customers = Customer.query.all()
-    return render_template('admin/customers.html', customers=all_customers)
+    pagination = Customer.query.order_by(Customer.created_at.desc()).paginate(
+        page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
+    return render_template('admin/customers.html', customers=pagination.items,
+                           pagination=pagination)
 
 @app.route('/add-customer', methods=['GET', 'POST'])
 @login_required
@@ -707,11 +840,14 @@ def products():
     if selected_category:
         query = query.filter_by(category=selected_category)
 
-    all_products = query.all()
+    pagination = query.order_by(Product.created_at.desc()).paginate(
+        page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
+    all_products = pagination.items
     categories = Product.query.with_entities(Product.category).distinct().all()
     categories = [{'category': item[0]} for item in categories if item[0]]
 
-    return render_template('admin/products.html', products=all_products, categories=categories, selected_category=selected_category)
+    return render_template('admin/products.html', products=all_products, categories=categories,
+                           selected_category=selected_category, pagination=pagination)
 
 @app.route('/categories', methods=['GET', 'POST'])
 @login_required
@@ -854,8 +990,10 @@ def product_detail(id):
 @app.route('/rentals')
 @login_required
 def rentals():
-    all_rentals = Rental.query.order_by(Rental.rental_date.desc()).all()
-    return render_template('admin/rentals.html', rentals=all_rentals)
+    pagination = Rental.query.order_by(Rental.rental_date.desc()).paginate(
+        page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
+    return render_template('admin/rentals.html', rentals=pagination.items,
+                           pagination=pagination)
 
 @app.route('/rentals/<int:id>/invoice')
 @login_required
@@ -985,7 +1123,7 @@ def add_rental():
             product_id = product_ids[i]
             quantity = quantities[i]
                 
-            product = Product.query.get(product_id)
+            product = locked_active_product(product_id)
             if not product or product.status != 'active':
                 flash('Có sản phẩm không còn khả dụng!', 'danger')
                 db.session.rollback()
@@ -1420,61 +1558,6 @@ def export_pdf():
 # ==================== KHỞI TẠO DATABASE ====================
 def init_db():
     with app.app_context():
-        db.create_all()
-        if db.engine.dialect.name != 'sqlite':
-            admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
-            admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-            existing_admin = Admin.query.filter_by(username=admin_username).first()
-            if not existing_admin:
-                db.session.add(Admin(
-                    username=admin_username,
-                    password=generate_password_hash(admin_password),
-                    email='admin@example.com',
-                    fullname='Administrator'
-                ))
-            elif os.environ.get('ADMIN_PASSWORD'):
-                existing_admin.password = generate_password_hash(admin_password)
-            db.session.commit()
-            print(f"PostgreSQL database initialized for admin: {admin_username}")
-            return
-        # Bổ sung cột cho database cũ mà không làm mất dữ liệu.
-        columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(customer)')).fetchall()]
-        if 'password_hash' not in columns:
-            db.session.execute(text('ALTER TABLE customer ADD COLUMN password_hash VARCHAR(200)'))
-            db.session.commit()
-        product_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(product)')).fetchall()]
-        if 'gender' not in product_columns:
-            db.session.execute(text("ALTER TABLE product ADD COLUMN gender VARCHAR(20) DEFAULT 'unisex'"))
-        if 'sizes' not in product_columns:
-            db.session.execute(text('ALTER TABLE product ADD COLUMN sizes VARCHAR(100)'))
-        if 'variants' not in product_columns:
-            db.session.execute(text('ALTER TABLE product ADD COLUMN variants TEXT'))
-        detail_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental_detail)')).fetchall()]
-        if 'start_date' not in detail_columns:
-            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN start_date DATETIME'))
-        if 'end_date' not in detail_columns:
-            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN end_date DATETIME'))
-        if 'selected_size' not in detail_columns:
-            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN selected_size VARCHAR(10)'))
-        if 'selected_gender' not in detail_columns:
-            db.session.execute(text('ALTER TABLE rental_detail ADD COLUMN selected_gender VARCHAR(20)'))
-        rental_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(rental)')).fetchall()]
-        if 'payment_method' not in rental_columns:
-            db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_method VARCHAR(20) DEFAULT 'cash'"))
-        if 'payment_status' not in rental_columns:
-            db.session.execute(text("ALTER TABLE rental ADD COLUMN payment_status VARCHAR(30) DEFAULT 'unpaid'"))
-        if 'paid_at' not in rental_columns:
-            db.session.execute(text('ALTER TABLE rental ADD COLUMN paid_at DATETIME'))
-        if 'payment_receipt_url' not in rental_columns:
-            db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_receipt_url VARCHAR(300)'))
-        if 'payment_submitted_at' not in rental_columns:
-            db.session.execute(text('ALTER TABLE rental ADD COLUMN payment_submitted_at DATETIME'))
-        if 'adjustment_amount' not in rental_columns:
-            db.session.execute(text('ALTER TABLE rental ADD COLUMN adjustment_amount FLOAT DEFAULT 0'))
-        if 'adjustment_note' not in rental_columns:
-            db.session.execute(text('ALTER TABLE rental ADD COLUMN adjustment_note TEXT'))
-        db.session.commit()
-        
         admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
         admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
         existing_admin = Admin.query.filter_by(username=admin_username).first()

@@ -22,10 +22,10 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -74,9 +74,7 @@ jobs:
              cd /home/thanhnguyen12092003/Rental-management
              git switch main
              git pull --ff-only origin main
-             docker compose build web
-             docker compose run --rm --no-deps web python -c "from app import init_db; init_db()"
-             docker compose up -d --no-deps web
+             docker compose up -d --build
              docker compose ps
              for attempt in $(seq 1 45); do
                if curl --fail --silent --show-error http://127.0.0.1:8000/health; then

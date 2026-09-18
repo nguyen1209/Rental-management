@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}Kho Thuê{% endblock %}</title>
-  {% if request.endpoint == 'customer_rent' %}
+  {% if request.endpoint in ('customer_rent', 'customer_product_detail') %}
   <meta name="description" content="Trang phục biểu diễn Phương Lan phục vụ Đồng Tháp, An Giang, Cần Thơ và Vĩnh Long tùy khoảng cách. Cho thuê trang phục, phụ kiện, đạo cụ. Liên hệ 0983469493.">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://trangphucbieudienphuonglan.io.vn/rent">
+  <link rel="canonical" href="{{ config.PUBLIC_BASE_URL }}{{ request.path }}">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="vi_VN">
   <meta property="og:site_name" content="Trang phục biểu diễn Phương Lan">
-  <meta property="og:title" content="Trang phục biểu diễn Phương Lan">
-  <meta property="og:description" content="Cho thuê trang phục biểu diễn tại Đồng Tháp, An Giang, Cần Thơ và Vĩnh Long tùy khoảng cách. Liên hệ 0983469493.">
-  <meta property="og:url" content="https://trangphucbieudienphuonglan.io.vn/rent">
+  <meta property="og:title" content="{{ product.name if product is defined else 'Trang phục biểu diễn Phương Lan' }}">
+  <meta property="og:description" content="{{ (product.description or 'Cho thuê trang phục biểu diễn Phương Lan.') if product is defined else 'Cho thuê trang phục biểu diễn tại Đồng Tháp, An Giang, Cần Thơ và Vĩnh Long tùy khoảng cách. Liên hệ 0983469493.' }}">
+  <meta property="og:url" content="{{ config.PUBLIC_BASE_URL }}{{ request.path }}">
+  {% if product is defined and product.image_url %}<meta property="og:image" content="{{ product.image_url if product.image_url.startswith('http') else config.PUBLIC_BASE_URL + product.image_url }}">{% endif %}
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -60,8 +61,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mega-categories.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/typography.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-image-upload.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/logout-buttons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/product-detail.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pagination.css') }}">
+  {% if config.ANALYTICS_ID %}<script async src="https://www.googletagmanager.com/gtag/js?id={{ config.ANALYTICS_ID }}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','{{ config.ANALYTICS_ID }}',{anonymize_ip:true});</script>{% endif %}
 </head>
-{% set customer_endpoints = ['customer_rent', 'customer_checkout', 'customer_register', 'customer_login', 'customer_logout', 'customer_orders'] %}
+{% set customer_endpoints = ['customer_rent', 'customer_product_detail', 'customer_checkout', 'customer_register', 'customer_login', 'customer_logout', 'customer_orders'] %}
 {% set admin_layout = current_user.is_authenticated and request.endpoint not in customer_endpoints %}
 <body class="{{ 'admin-body' if admin_layout else 'store-body' }}">
 {% if admin_layout %}
@@ -76,7 +81,7 @@
       <a href="{{ url_for('customers') }}"><i class="fa-solid fa-users"></i>Khách hàng</a>
       <a href="{{ url_for('reports') }}"><i class="fa-solid fa-chart-line"></i>Doanh thu</a>
     </nav>
-    <div class="sidebar-foot"><a href="{{ url_for('customer_rent') }}"><i class="fa-solid fa-store"></i>Xem cửa hàng</a><a href="{{ url_for('logout') }}"><i class="fa-solid fa-arrow-right-from-bracket"></i>Đăng xuất</a></div>
+    <div class="sidebar-foot"><a href="{{ url_for('customer_rent') }}"><i class="fa-solid fa-store"></i>Xem cửa hàng</a><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit"><i class="fa-solid fa-arrow-right-from-bracket"></i>Đăng xuất</button></form></div>
   </aside>
   <main class="main-content"><div class="admin-top"><div><small>Xin chào,</small><strong>{{ current_user.fullname }}</strong></div><span class="avatar">{{ current_user.fullname[:1] }}</span></div>
 {% else %}

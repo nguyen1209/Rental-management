@@ -21,6 +21,9 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:?Create a .env file with SECRET_KEY}
+      COOKIE_SECURE: "1"
+      ANALYTICS_ID: ${ANALYTICS_ID:-}
+      MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-512}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Create a .env file with ADMIN_PASSWORD}
       DB_HOST: postgres
