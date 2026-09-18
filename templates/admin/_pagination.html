@@ -1,0 +1,7 @@
+{% if pagination and pagination.pages > 1 %}
+<nav class="admin-pagination" aria-label="Phân trang">
+  {% if pagination.has_prev %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination_url(pagination.prev_num) }}">← Trước</a>{% endif %}
+  <span>Trang {{ pagination.page }}/{{ pagination.pages }} · {{ pagination.total }} kết quả</span>
+  {% if pagination.has_next %}<a class="btn btn-sm btn-outline-secondary" href="{{ pagination_url(pagination.next_num) }}">Sau →</a>{% endif %}
+</nav>
+{% endif %}

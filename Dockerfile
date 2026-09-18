@@ -14,4 +14,4 @@ RUN mkdir -p /app/instance /app/static/uploads
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -c 'from app import init_db; init_db()' && exec gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - app:app"]
+CMD ["sh", "-c", "flask --app app db upgrade && python -c 'from app import init_db; init_db()' && exec gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile - app:app"]

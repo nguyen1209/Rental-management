@@ -4,7 +4,7 @@
 <header class="store-nav">
   <a class="store-brand" href="{{ url_for('customer_rent') }}"><span class="brand-mark"><i class="fa-solid fa-box-open"></i></span>KhoThuê</a>
   <nav><a href="{{ url_for('customer_rent') }}">Cửa hàng</a><a href="{{ url_for('customer_orders') }}">Lịch sử thuê</a></nav>
-  <a class="admin-link" href="{{ url_for('customer_logout') }}">Đăng xuất</a>
+  <form method="post" action="{{ url_for('customer_logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="admin-link" type="submit">Đăng xuất</button></form>
 </header>
 
 <main class="orders-page">

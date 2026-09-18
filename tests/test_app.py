@@ -77,6 +77,16 @@ class RentalAppTestCase(unittest.TestCase):
         login = self.client.get('/login')
         self.assertIn(b'<meta name="robots" content="noindex, nofollow">', login.data)
 
+    def test_customer_product_detail_has_seo_and_is_in_sitemap(self):
+        product_id = self.create_product()
+        detail = self.client.get(f'/san-pham/{product_id}')
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn(b'Product', detail.data)
+        self.assertIn(f'/san-pham/{product_id}'.encode(), detail.data)
+        self.assertIn(b'<meta name="robots" content="index, follow">', detail.data)
+        sitemap = self.client.get('/sitemap.xml')
+        self.assertIn(f'/san-pham/{product_id}</loc>'.encode(), sitemap.data)
+
     def test_customer_register_order_and_history(self):
         product_id = self.create_product()
         response = self.client.post('/customer/register', data={
@@ -170,7 +180,7 @@ class RentalAppTestCase(unittest.TestCase):
             app.config['UPLOAD_FOLDER'] = upload_folder
             response = self.client.post(f'/customer/orders/{rental_id}/payment-proof', data={
                 '_csrf_token': self.csrf('/customer/orders'),
-                'payment_receipt': (io.BytesIO(b'fake-image'), 'receipt.png')},
+                'payment_receipt': (io.BytesIO(b'\x89PNG\r\n\x1a\nvalid-test-image'), 'receipt.png')},
                 content_type='multipart/form-data')
             app.config['UPLOAD_FOLDER'] = previous_upload_folder
         self.assertEqual(response.status_code, 302)
@@ -206,7 +216,7 @@ class RentalAppTestCase(unittest.TestCase):
         for path in (f'/delete-product/{product_id}', '/delete-customer/999',
                      '/delete-category/999', '/prepare-rental/999', '/return-rental/999',
                      '/cancel-rental/999', '/delete-rental/999',
-                     '/rentals/999/confirm-payment'):
+                     '/rentals/999/confirm-payment', '/logout', '/customer/logout'):
             self.assertEqual(self.client.get(path).status_code, 405, path)
 
     def test_admin_pages_render(self):
@@ -230,7 +240,7 @@ class RentalAppTestCase(unittest.TestCase):
                 'variant_gender[]': ['unisex'], 'variant_size[]': ['M'],
                 'variant_quantity[]': ['1'],
                 'image_url': 'https://example.com/old.jpg',
-                'camera_image': (io.BytesIO(b'phone-photo'), 'camera.jpg')},
+                'camera_image': (io.BytesIO(b'\xff\xd8\xffvalid-test-image'), 'camera.jpg')},
                 content_type='multipart/form-data')
             app.config['UPLOAD_FOLDER'] = previous_upload_folder
         self.assertEqual(response.status_code, 302)
