@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&amp;family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/shared/flash-messages.css') }}">
   <style>
     :root{--green:#15241d;--green-2:#233a2f;--wine:#8f2238;--gold:#c9a86a;--cream:#f6f1e9;--ink:#211a18;--muted:#726b66;--line:#e7dfd5}
     *{box-sizing:border-box}
@@ -34,9 +35,6 @@
     .login-box>span{color:var(--wine);font-size:10px;font-weight:700;letter-spacing:.16em}
     .login-box h2{margin:10px 0 8px;font-family:Lora,serif;font-size:36px;letter-spacing:-.025em}
     .intro{margin:0 0 30px;color:var(--muted);font-size:13px;line-height:1.65}
-    .alert{position:relative;margin-bottom:20px;padding:12px 42px 12px 14px;border:1px solid #e5c7c3;border-radius:9px;background:#fff0ee;color:#92382f;font-size:11px}
-    .alert-success{border-color:#bed7c7;background:#edf8f0;color:#24703c}.alert-info{border-color:#c5d8e3;background:#eef7fb;color:#28739b}
-    .alert button{position:absolute;right:12px;top:8px;border:0;background:none;color:inherit;font-size:20px;cursor:pointer}
     form{display:grid;gap:18px}
     label{display:grid;gap:8px;font-size:11px;font-weight:700}
     .field{position:relative}.field>i{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:#9c9289;font-size:13px}
@@ -75,11 +73,7 @@
         <h2>Đăng nhập quản trị</h2>
         <p class="intro">Nhập thông tin tài khoản để truy cập trang điều hành cửa hàng.</p>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% for category, message in messages %}
-            <div class="alert alert-{{ category }}" role="alert">{{ message }}<button type="button" aria-label="Đóng thông báo">&times;</button></div>
-          {% endfor %}
-        {% endwith %}
+        {% include 'partials/flash_messages.html' %}
 
         <form method="post">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -98,9 +92,9 @@
     </section>
   </main>
   <script>
-    document.querySelectorAll('.alert button').forEach(button=>button.addEventListener('click',()=>button.parentElement.remove()));
     const toggle=document.querySelector('.password-toggle'),password=document.querySelector('#password');
     toggle.addEventListener('click',()=>{const visible=password.type==='text';password.type=visible?'password':'text';toggle.setAttribute('aria-pressed',String(!visible));toggle.setAttribute('aria-label',visible?'Hiện mật khẩu':'Ẩn mật khẩu');toggle.innerHTML=`<i class="fa-regular fa-eye${visible?'':'-slash'}"></i>`;});
   </script>
+  <script src="{{ url_for('static', filename='js/flash-messages.js') }}"></script>
 </body>
 </html>

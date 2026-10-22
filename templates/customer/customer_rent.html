@@ -109,7 +109,7 @@
             </div>
         </div>
         <div class="result-meta">
-            Tìm thấy {{ products|length }} sản phẩm
+            Tìm thấy {{ pagination.total }} sản phẩm
             {% if filter_start_str and filter_end_str %}
                 <span class="badge bg-info text-dark ms-2">Khả dụng từ {{ filter_start_str }} đến {{ filter_end_str }}</span>
             {% endif %}
