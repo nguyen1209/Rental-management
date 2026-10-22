@@ -55,7 +55,7 @@ class RentalAppTestCase(unittest.TestCase):
         with patch('app.send_password_reset_email') as send_email:
             response = self.client.post('/customer/forgot-password', data={
                 '_csrf_token': self.csrf('/customer/forgot-password'),
-                'phone': '0900000088'})
+                'email': 'RESET@example.com'})
         self.assertEqual(response.status_code, 302)
         send_email.assert_called_once()
         reset_url = send_email.call_args.args[1]
@@ -75,11 +75,11 @@ class RentalAppTestCase(unittest.TestCase):
 
         self.assertEqual(self.client.get(reset_path).status_code, 302)
 
-    def test_forgot_password_response_does_not_reveal_unknown_phone(self):
+    def test_forgot_password_response_does_not_reveal_unknown_email(self):
         with patch('app.send_password_reset_email') as send_email:
             response = self.client.post('/customer/forgot-password', data={
                 '_csrf_token': self.csrf('/customer/forgot-password'),
-                'phone': '0900000000'})
+                'email': 'unknown@example.com'})
         self.assertEqual(response.status_code, 302)
         send_email.assert_not_called()
 
@@ -92,7 +92,7 @@ class RentalAppTestCase(unittest.TestCase):
         with patch('app.send_password_reset_email') as send_email:
             response = self.client.post('/admin/forgot-password', data={
                 '_csrf_token': self.csrf('/admin/forgot-password'),
-                'username': 'admin'})
+                'email': 'OWNER@example.com'})
         self.assertEqual(response.status_code, 302)
         send_email.assert_called_once()
         reset_url = send_email.call_args.args[1]

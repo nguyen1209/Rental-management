@@ -727,9 +727,13 @@ def customer_forgot_password():
             return render_template('customer/customer_forgot_password.html'), 429
         record_login_failure('password_reset')
 
-        phone = request.form.get('phone', '').strip()
-        customer = Customer.query.filter_by(phone=phone).first() if phone else None
-        if customer and customer.password_hash and customer.email:
+        email = request.form.get('email', '').strip().lower()
+        customers = Customer.query.filter(
+            func.lower(func.trim(Customer.email)) == email,
+            Customer.password_hash.isnot(None),
+        ).limit(2).all() if email else []
+        customer = customers[0] if len(customers) == 1 else None
+        if customer and customer.email:
             token = secrets.token_urlsafe(32)
             customer.password_reset_token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
             customer.password_reset_expires_at = datetime.utcnow() + timedelta(minutes=30)
@@ -741,7 +745,7 @@ def customer_forgot_password():
             except Exception as error:
                 app.logger.error('Password reset email delivery failed: %s', type(error).__name__)
 
-        flash('Nếu số điện thoại có tài khoản kèm email, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
+        flash('Nếu email thuộc tài khoản khách hàng, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
         return redirect(url_for('customer_forgot_password'))
     return render_template('customer/customer_forgot_password.html')
 
@@ -782,9 +786,13 @@ def admin_forgot_password():
             return render_template('customer/customer_forgot_password.html', account_type='admin'), 429
         record_login_failure('admin_password_reset')
 
-        username = request.form.get('username', '').strip()
-        admin = Admin.query.filter_by(username=username).first() if username else None
-        if admin and admin.email and admin.email.lower() != 'admin@example.com':
+        email = request.form.get('email', '').strip().lower()
+        admins = Admin.query.filter(
+            func.lower(func.trim(Admin.email)) == email,
+            Admin.email != 'admin@example.com',
+        ).limit(2).all() if email else []
+        admin = admins[0] if len(admins) == 1 else None
+        if admin and admin.email:
             token = secrets.token_urlsafe(32)
             admin.password_reset_token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
             admin.password_reset_expires_at = datetime.utcnow() + timedelta(minutes=30)
@@ -796,7 +804,7 @@ def admin_forgot_password():
             except Exception as error:
                 app.logger.error('Admin password reset email delivery failed: %s', type(error).__name__)
 
-        flash('Nếu tài khoản quản trị có email đã xác minh, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
+        flash('Nếu email thuộc tài khoản quản trị, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
         return redirect(url_for('admin_forgot_password'))
     return render_template('customer/customer_forgot_password.html', account_type='admin')
 
