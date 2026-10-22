@@ -444,7 +444,7 @@ def customer_rent():
     page = request.args.get('page', 1, type=int)
     pagination = product_query.order_by(
         sort_options.get(sort, sort_options['newest'])
-    ).paginate(page=page, per_page=12, error_out=False)
+    ).paginate(page=page, per_page=40, error_out=False)
     raw_products = pagination.items
 
     # Tính toán tồn rảnh hiệu lực theo khoảng thời gian nếu người dùng chọn ngày
@@ -840,7 +840,7 @@ def admin_reset_password():
 @app.route('/customer/logout', methods=['POST'])
 def customer_logout():
     session.pop('customer_id', None)
-    flash('Bạn đã đăng xuất.', 'info')
+    flash('Bạn đã đăng xuất an toàn.', 'success')
     return redirect(url_for('customer_rent'))
 
 @app.route('/customer/orders')
@@ -932,7 +932,7 @@ def login():
 @login_required
 def logout():
     logout_user()
-    flash('Đã đăng xuất', 'info')
+    flash('Phiên quản trị đã kết thúc an toàn.', 'success')
     return redirect(url_for('login'))
 
 # ==================== DASHBOARD ====================

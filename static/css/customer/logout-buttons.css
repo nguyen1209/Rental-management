@@ -2,7 +2,6 @@
 .account-menu form {
   margin: 0;
 }
-
 .sidebar-foot button {
   width: 100%;
   padding: 12px;
@@ -15,11 +14,9 @@
   font-size: 13px;
   cursor: pointer;
 }
-
 .sidebar-foot button:hover {
   background: #26372f;
 }
-
 .account-menu button {
   border: 0;
   background: transparent;
