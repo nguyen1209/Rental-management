@@ -11,11 +11,64 @@
     <a href="{{ url_for('add_rental') }}" class="btn btn-dark"><i class="fa-solid fa-plus"></i> Tạo đơn mới</a>
 </div>
 
-<div class="rental-flow">
-    <span><i>1</i> Chờ soạn</span><b>→</b>
-    <span><i>2</i> Chờ trả</span><b>→</b>
-    <span><i>3</i> Đã hoàn tất</span>
+<!-- B1/F3: Status tabs với badge đếm số lượng -->
+<div class="rental-status-tabs">
+    <a href="{{ url_for('rentals', q=q, payment_status=payment_status_filter, date_from=date_from, date_to=date_to) }}"
+       class="status-tab {{ 'active' if not status_filter }}">
+        Tất cả <span class="tab-badge">{{ status_counts.all }}</span>
+    </a>
+    <a href="{{ url_for('rentals', q=q, status='pending', payment_status=payment_status_filter, date_from=date_from, date_to=date_to) }}"
+       class="status-tab {{ 'active' if status_filter == 'pending' }}">
+        <i class="fa-solid fa-box-open"></i> Chờ soạn
+        <span class="tab-badge badge-pending">{{ status_counts.pending }}</span>
+    </a>
+    <a href="{{ url_for('rentals', q=q, status='rented', payment_status=payment_status_filter, date_from=date_from, date_to=date_to) }}"
+       class="status-tab {{ 'active' if status_filter == 'rented' }}">
+        <i class="fa-regular fa-clock"></i> Chờ trả
+        <span class="tab-badge badge-rented">{{ status_counts.rented }}</span>
+    </a>
+    <a href="{{ url_for('rentals', q=q, status='returned', payment_status=payment_status_filter, date_from=date_from, date_to=date_to) }}"
+       class="status-tab {{ 'active' if status_filter == 'returned' }}">
+        <i class="fa-solid fa-check"></i> Đã hoàn tất
+        <span class="tab-badge badge-returned">{{ status_counts.returned }}</span>
+    </a>
+    <a href="{{ url_for('rentals', q=q, status='cancelled', payment_status=payment_status_filter, date_from=date_from, date_to=date_to) }}"
+       class="status-tab {{ 'active' if status_filter == 'cancelled' }}">
+        <i class="fa-solid fa-xmark"></i> Đã hủy
+        <span class="tab-badge badge-cancelled">{{ status_counts.cancelled }}</span>
+    </a>
 </div>
+
+<!-- B1/F3: Search & date filter -->
+<form method="GET" action="{{ url_for('rentals') }}" class="rentals-filter-bar">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    {% if payment_status_filter %}<input type="hidden" name="payment_status" value="{{ payment_status_filter }}">{% endif %}
+    <div class="filter-search">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Tìm mã đơn, tên khách, SĐT…" id="rental-search-input">
+    </div>
+    <div class="filter-dates">
+        <label>Từ ngày <input type="date" name="date_from" value="{{ date_from }}"></label>
+        <label>Đến ngày <input type="date" name="date_to" value="{{ date_to }}"></label>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Lọc</button>
+    {% if q or date_from or date_to or payment_status_filter %}
+    <a href="{{ url_for('rentals', status=status_filter) }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>
+    {% endif %}
+</form>
+
+<!-- B9: Nút export với khoảng ngày hiện tại -->
+{% if status_filter == 'returned' or (not status_filter and status_counts.returned > 0) %}
+<div class="export-bar">
+    <span class="text-muted" style="font-size:.85em">Xuất dữ liệu đơn đã hoàn tất:</span>
+    <a href="{{ url_for('export_excel', date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-success">
+        <i class="fa-solid fa-file-excel"></i> Excel
+    </a>
+    <a href="{{ url_for('export_pdf', date_from=date_from, date_to=date_to) }}" class="btn btn-sm btn-outline-danger">
+        <i class="fa-solid fa-file-pdf"></i> PDF
+    </a>
+</div>
+{% endif %}
 
 <section class="panel rental-panel">
     <div class="table-responsive">
@@ -50,6 +103,11 @@
                             <div class="rental-item mb-1">
                                 {{ detail.product.name if detail.product else 'Sản phẩm đã xóa' }}
                                 <b>×{{ detail.quantity }}</b>
+                                {% if detail.selected_gender or detail.selected_size %}
+                                    <small class="text-muted">
+                                        ({% if detail.selected_gender %}{{ product_genders.get(detail.selected_gender, detail.selected_gender) }}{% endif %}{% if detail.selected_size %} · {{ detail.selected_size }}{% endif %})
+                                    </small>
+                                {% endif %}
                             </div>
                         {% else %}
                             <span class="text-muted">Không có sản phẩm</span>
@@ -67,8 +125,8 @@
                     <td>
                         {% if rental.payment_method == 'bank_transfer' %}
                             <small>Chuyển khoản</small><br>
-                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% elif rental.payment_status == 'customer_submitted' %}<span class="badge text-bg-info">Khách đã gửi giao dịch</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
-                            {% if rental.payment_receipt_url %}<br><a href="{{ rental.payment_receipt_url }}" target="_blank" class="receipt-admin-link"><img src="{{ rental.payment_receipt_url }}" alt="Ảnh giao dịch"><span>Xem giao dịch</span></a>{% endif %}
+                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% elif rental.payment_status == 'customer_submitted' %}<span class="badge text-bg-info">Khách đã gửi GD</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
+                            {% if rental.payment_receipt_url %}<br><a href="{{ rental.payment_receipt_url }}" target="_blank" class="receipt-admin-link"><img src="{{ rental.payment_receipt_url }}" alt="Ảnh giao dịch"><span>Xem GD</span></a>{% endif %}
                         {% else %}<small>Tại cửa hàng</small><br><span class="badge text-bg-secondary">Chưa thanh toán</span>{% endif %}
                     </td>
                     <td>
@@ -80,6 +138,7 @@
                             <span class="status returned"><i class="fa-solid fa-check"></i> Đã trả</span>
                         {% else %}
                             <span class="status cancelled">Đã hủy</span>
+                            {% if rental.cancel_reason %}<br><small class="text-muted" title="{{ rental.cancel_reason }}">{{ rental.cancel_reason[:40] }}…</small>{% endif %}
                         {% endif %}
                     </td>
                     <td>
@@ -94,35 +153,48 @@
                                 </form>
                             </details>
                             {% if rental.payment_method == 'bank_transfer' and rental.payment_status != 'paid' and rental.status != 'cancelled' %}
-                                <form method="post" action="{{ url_for('confirm_rental_payment', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận đã nhận đúng số tiền chuyển khoản?')">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-primary"><i class="fa-solid fa-money-check-dollar"></i> Xác nhận tiền</button>
-                                </form>
+                                <!-- F7: Bootstrap modal thay confirm() -->
+                                <button type="button" class="btn btn-sm btn-primary"
+                                    data-bs-toggle="modal" data-bs-target="#confirmPaymentModal"
+                                    data-rental-id="{{ rental.id }}"
+                                    data-rental-code="{{ rental.rental_code }}">
+                                    <i class="fa-solid fa-money-check-dollar"></i> Xác nhận tiền
+                                </button>
                             {% endif %}
                             <a href="{{ url_for('rental_invoice', id=rental.id) }}" target="_blank" class="btn btn-sm btn-info text-white" title="In Hóa Đơn A4">
                                 <i class="fa-solid fa-print"></i> In Hóa đơn
                             </a>
 
                             {% if rental.status == 'pending' %}
-                                <form method="post" action="{{ url_for('prepare_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận đã soạn đủ trang phục và đạo cụ cho đơn này?')">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-success"><i class="fa-solid fa-check-double"></i> Đã soạn xong</button>
-                                </form>
-                                <form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Hủy đơn thuê này?')">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-warning">Hủy đơn</button>
-                                </form>
+                                <!-- F7: Bootstrap modal thay confirm() -->
+                                <button type="button" class="btn btn-sm btn-success"
+                                    data-bs-toggle="modal" data-bs-target="#prepareDoneModal"
+                                    data-rental-id="{{ rental.id }}"
+                                    data-rental-code="{{ rental.rental_code }}">
+                                    <i class="fa-solid fa-check-double"></i> Đã soạn xong
+                                </button>
+                                <button type="button" class="btn btn-sm btn-warning"
+                                    data-bs-toggle="modal" data-bs-target="#cancelRentalModal"
+                                    data-rental-id="{{ rental.id }}"
+                                    data-rental-code="{{ rental.rental_code }}">
+                                    Hủy đơn
+                                </button>
                             {% elif rental.status == 'rented' %}
-                                <form method="post" action="{{ url_for('return_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xác nhận khách đã trả đủ đồ?')">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-success"><i class="fa-solid fa-rotate-left"></i> Xác nhận đã trả</button>
-                                </form>
-                                <form method="post" action="{{ url_for('cancel_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Hủy đơn thuê này?')">
-                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-warning">Hủy đơn</button>
-                                </form>
+                                <button type="button" class="btn btn-sm btn-success"
+                                    data-bs-toggle="modal" data-bs-target="#returnDoneModal"
+                                    data-rental-id="{{ rental.id }}"
+                                    data-rental-code="{{ rental.rental_code }}">
+                                    <i class="fa-solid fa-rotate-left"></i> Xác nhận đã trả
+                                </button>
+                                <button type="button" class="btn btn-sm btn-warning"
+                                    data-bs-toggle="modal" data-bs-target="#cancelRentalModal"
+                                    data-rental-id="{{ rental.id }}"
+                                    data-rental-code="{{ rental.rental_code }}">
+                                    Hủy đơn
+                                </button>
                             {% else %}
-                                <form method="post" action="{{ url_for('delete_rental', id=rental.id) }}" class="d-inline" onsubmit="return confirm('Xóa đơn này khỏi hệ thống?')">
+                                <form method="post" action="{{ url_for('delete_rental', id=rental.id) }}" class="d-inline"
+                                      onsubmit="return confirm('Xóa đơn này khỏi hệ thống?')">
                                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i> Xóa</button>
                                 </form>
@@ -135,8 +207,8 @@
                     <td colspan="8">
                         <div class="empty-state text-center py-4">
                             <i class="fa-solid fa-receipt fs-1 text-muted mb-2"></i>
-                            <h3>Chưa có đơn thuê</h3>
-                            <p class="text-muted">Đơn mới sẽ xuất hiện tại đây để bắt đầu soạn.</p>
+                            <h3>{% if q %}Không tìm thấy đơn thuê nào{% else %}Chưa có đơn thuê{% endif %}</h3>
+                            <p class="text-muted">{% if q %}Thử tìm kiếm với từ khóa khác.{% else %}Đơn mới sẽ xuất hiện tại đây.{% endif %}</p>
                         </div>
                     </td>
                 </tr>
@@ -146,4 +218,129 @@
     </div>
 </section>
 {% include 'admin/_pagination.html' %}
+
+<!-- F7: Modal xác nhận soạn xong -->
+<div class="modal fade" id="prepareDoneModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-check-double text-success"></i> Xác nhận soạn xong</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Xác nhận đã soạn đủ trang phục và đạo cụ cho đơn <strong id="prepare-code"></strong>?</p>
+                <p class="text-muted small">Đơn sẽ chuyển sang trạng thái <b>Chờ trả</b>.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+                <form method="post" id="prepare-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-success">Xác nhận</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- F7: Modal xác nhận đã trả -->
+<div class="modal fade" id="returnDoneModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-rotate-left text-success"></i> Xác nhận khách đã trả</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Xác nhận khách đã trả đủ đồ cho đơn <strong id="return-code"></strong>?</p>
+                <p class="text-muted small">Tồn kho sẽ được hoàn lại sau khi xác nhận.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+                <form method="post" id="return-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-success">Xác nhận đã trả</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- F7 + B10: Modal hủy đơn có nhập lý do -->
+<div class="modal fade" id="cancelRentalModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-xmark text-warning"></i> Hủy đơn thuê</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="cancel-form">
+                <div class="modal-body">
+                    <p>Hủy đơn <strong id="cancel-code"></strong>? Tồn kho sẽ được hoàn lại.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Lý do hủy (không bắt buộc)</label>
+                        <textarea name="cancel_reason" class="form-control" rows="2"
+                                  placeholder="Khách đổi ý, lịch sự kiện thay đổi…" maxlength="500"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Thôi</button>
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-warning">Hủy đơn</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- F7: Modal xác nhận thanh toán -->
+<div class="modal fade" id="confirmPaymentModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-money-check-dollar text-primary"></i> Xác nhận thanh toán</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Xác nhận đã nhận đúng số tiền chuyển khoản cho đơn <strong id="payment-code"></strong>?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
+                <form method="post" id="payment-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary">Xác nhận đã nhận tiền</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// F7: Gán action đúng cho từng modal dựa vào rental-id
+document.addEventListener('DOMContentLoaded', function() {
+    // Modal soạn xong
+    document.getElementById('prepareDoneModal').addEventListener('show.bs.modal', function(e) {
+        const btn = e.relatedTarget;
+        document.getElementById('prepare-code').textContent = btn.dataset.rentalCode;
+        document.getElementById('prepare-form').action = '/prepare-rental/' + btn.dataset.rentalId;
+    });
+    // Modal đã trả
+    document.getElementById('returnDoneModal').addEventListener('show.bs.modal', function(e) {
+        const btn = e.relatedTarget;
+        document.getElementById('return-code').textContent = btn.dataset.rentalCode;
+        document.getElementById('return-form').action = '/return-rental/' + btn.dataset.rentalId;
+    });
+    // Modal hủy đơn
+    document.getElementById('cancelRentalModal').addEventListener('show.bs.modal', function(e) {
+        const btn = e.relatedTarget;
+        document.getElementById('cancel-code').textContent = btn.dataset.rentalCode;
+        document.getElementById('cancel-form').action = '/cancel-rental/' + btn.dataset.rentalId;
+    });
+    // Modal xác nhận thanh toán
+    document.getElementById('confirmPaymentModal').addEventListener('show.bs.modal', function(e) {
+        const btn = e.relatedTarget;
+        document.getElementById('payment-code').textContent = btn.dataset.rentalCode;
+        document.getElementById('payment-form').action = '/rentals/' + btn.dataset.rentalId + '/confirm-payment';
+    });
+});
+</script>
 {% endblock %}

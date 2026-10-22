@@ -7,12 +7,15 @@ from werkzeug.utils import secure_filename
 from werkzeug.wsgi import FileWrapper
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
+from email.message import EmailMessage
+import hashlib
 import calendar
 import secrets
 import os
 import json
 import math
 import logging
+import smtplib
 import shutil
 import time
 from urllib.parse import urlencode
@@ -64,6 +67,13 @@ app.config['PUBLIC_BASE_URL'] = os.environ.get(
     'PUBLIC_BASE_URL', 'https://trangphucbieudienphuonglan.io.vn').rstrip('/')
 app.config['ANALYTICS_ID'] = os.environ.get('ANALYTICS_ID', '').strip()
 app.config['MIN_FREE_DISK_MB'] = int(os.environ.get('MIN_FREE_DISK_MB', '512'))
+app.config['MAIL_HOST'] = os.environ.get('MAIL_HOST', '').strip()
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '').strip()
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', '1') == '1'
+app.config['MAIL_FROM'] = os.environ.get('MAIL_FROM', '').strip()
+app.config['ADMIN_EMAIL'] = os.environ.get('ADMIN_EMAIL', '').strip()
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'INFO'),
@@ -176,6 +186,31 @@ def record_login_failure(scope):
 
 def clear_login_failures(scope):
     _login_failures.pop(login_rate_key(scope), None)
+
+def send_password_reset_email(recipient, reset_url):
+    mail_host = app.config['MAIL_HOST']
+    mail_from = app.config['MAIL_FROM'] or app.config['MAIL_USERNAME']
+    if not mail_host or not mail_from:
+        raise RuntimeError('Password reset email is not configured')
+
+    message = EmailMessage()
+    message['Subject'] = 'Đặt lại mật khẩu tài khoản'
+    message['From'] = mail_from
+    message['To'] = recipient
+    message.set_content(
+        'Bạn nhận được email này vì đã yêu cầu đặt lại mật khẩu. '
+        f'Mở liên kết sau trong vòng 30 phút: {reset_url}\n\n'
+        'Nếu bạn không yêu cầu, hãy bỏ qua email này.'
+    )
+
+    with smtplib.SMTP(mail_host, app.config['MAIL_PORT'], timeout=10) as smtp:
+        smtp.ehlo()
+        if app.config['MAIL_USE_TLS']:
+            smtp.starttls()
+            smtp.ehlo()
+        if app.config['MAIL_USERNAME']:
+            smtp.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
+        smtp.send_message(message)
 
 def locked_active_product(product_id):
     """Lock inventory rows on PostgreSQL until the current transaction finishes."""
@@ -347,7 +382,6 @@ def admin():
 def admin_compatibility_redirect(page):
     """Redirect URLs left behind by the removed React frontend."""
     endpoints = {
-        'login': 'login',
         'dashboard': 'dashboard',
         'products': 'products',
         'categories': 'categories',
@@ -633,13 +667,19 @@ def customer_register():
     if session.get('customer_id'):
         return redirect(url_for('customer_orders'))
     if request.method == 'POST':
+        # B11: Rate limit cho đăng ký tài khoản
+        if login_is_limited('register'):
+            flash('Đăng ký tạm khóa do có quá nhiều lần thử. Vui lòng thử lại sau 15 phút.', 'danger')
+            return render_template('customer/customer_register.html'), 429
         fullname = request.form.get('fullname', '').strip()
         phone = request.form.get('phone', '').strip()
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         if not fullname or not phone or len(password) < 6:
+            record_login_failure('register')
             flash('Vui lòng nhập đầy đủ thông tin; mật khẩu cần ít nhất 6 ký tự.', 'danger')
         elif Customer.query.filter_by(phone=phone).first() and Customer.query.filter_by(phone=phone).first().password_hash:
+            record_login_failure('register')
             flash('Số điện thoại này đã có tài khoản.', 'danger')
         else:
             customer = Customer.query.filter_by(phone=phone).first()
@@ -652,12 +692,13 @@ def customer_register():
                                     password_hash=generate_password_hash(password))
                 db.session.add(customer)
             db.session.commit()
+            clear_login_failures('register')
             session['customer_id'] = customer.id
             flash('Tạo tài khoản thành công!', 'success')
             return redirect(url_for('customer_checkout'))
     return render_template('customer/customer_register.html')
 
-@app.route('/customer/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def customer_login():
     next_page = request.args.get('next', '')
     destination = url_for('customer_checkout') if next_page == url_for('customer_checkout') else url_for('customer_rent')
@@ -678,6 +719,116 @@ def customer_login():
         flash('Số điện thoại hoặc mật khẩu không đúng.', 'danger')
     return render_template('customer/customer_login.html')
 
+@app.route('/customer/forgot-password', methods=['GET', 'POST'])
+def customer_forgot_password():
+    if request.method == 'POST':
+        if login_is_limited('password_reset'):
+            flash('Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau 15 phút.', 'info')
+            return render_template('customer/customer_forgot_password.html'), 429
+        record_login_failure('password_reset')
+
+        phone = request.form.get('phone', '').strip()
+        customer = Customer.query.filter_by(phone=phone).first() if phone else None
+        if customer and customer.password_hash and customer.email:
+            token = secrets.token_urlsafe(32)
+            customer.password_reset_token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+            customer.password_reset_expires_at = datetime.utcnow() + timedelta(minutes=30)
+            db.session.commit()
+            reset_url = (f"{app.config['PUBLIC_BASE_URL']}"
+                         f"{url_for('customer_reset_password', token=token)}")
+            try:
+                send_password_reset_email(customer.email, reset_url)
+            except Exception as error:
+                app.logger.error('Password reset email delivery failed: %s', type(error).__name__)
+
+        flash('Nếu số điện thoại có tài khoản kèm email, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
+        return redirect(url_for('customer_forgot_password'))
+    return render_template('customer/customer_forgot_password.html')
+
+@app.route('/customer/reset-password', methods=['GET', 'POST'])
+def customer_reset_password():
+    token = request.values.get('token', '')
+    token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+    customer = Customer.query.filter_by(password_reset_token_hash=token_hash).first()
+    token_valid = bool(
+        customer and customer.password_reset_expires_at
+        and customer.password_reset_expires_at > datetime.utcnow()
+    )
+    if not token_valid:
+        flash('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.', 'danger')
+        return redirect(url_for('customer_forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        if len(password) < 8:
+            flash('Mật khẩu mới cần có ít nhất 8 ký tự.', 'danger')
+        elif password != password_confirm:
+            flash('Mật khẩu xác nhận không khớp.', 'danger')
+        else:
+            customer.password_hash = generate_password_hash(password)
+            customer.password_reset_token_hash = None
+            customer.password_reset_expires_at = None
+            db.session.commit()
+            flash('Mật khẩu đã được cập nhật. Vui lòng đăng nhập.', 'success')
+            return redirect(url_for('customer_login'))
+    return render_template('customer/customer_reset_password.html', token=token)
+
+@app.route('/admin/forgot-password', methods=['GET', 'POST'])
+def admin_forgot_password():
+    if request.method == 'POST':
+        if login_is_limited('admin_password_reset'):
+            flash('Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau 15 phút.', 'info')
+            return render_template('customer/customer_forgot_password.html', account_type='admin'), 429
+        record_login_failure('admin_password_reset')
+
+        username = request.form.get('username', '').strip()
+        admin = Admin.query.filter_by(username=username).first() if username else None
+        if admin and admin.email and admin.email.lower() != 'admin@example.com':
+            token = secrets.token_urlsafe(32)
+            admin.password_reset_token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+            admin.password_reset_expires_at = datetime.utcnow() + timedelta(minutes=30)
+            db.session.commit()
+            reset_url = (f"{app.config['PUBLIC_BASE_URL']}"
+                         f"{url_for('admin_reset_password', token=token)}")
+            try:
+                send_password_reset_email(admin.email, reset_url)
+            except Exception as error:
+                app.logger.error('Admin password reset email delivery failed: %s', type(error).__name__)
+
+        flash('Nếu tài khoản quản trị có email đã xác minh, hướng dẫn đặt lại mật khẩu sẽ được gửi đến email đó.', 'info')
+        return redirect(url_for('admin_forgot_password'))
+    return render_template('customer/customer_forgot_password.html', account_type='admin')
+
+@app.route('/admin/reset-password', methods=['GET', 'POST'])
+def admin_reset_password():
+    token = request.values.get('token', '')
+    token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+    admin = Admin.query.filter_by(password_reset_token_hash=token_hash).first()
+    token_valid = bool(
+        admin and admin.password_reset_expires_at
+        and admin.password_reset_expires_at > datetime.utcnow()
+    )
+    if not token_valid:
+        flash('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.', 'danger')
+        return redirect(url_for('admin_forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        if len(password) < 8:
+            flash('Mật khẩu mới cần có ít nhất 8 ký tự.', 'danger')
+        elif password != password_confirm:
+            flash('Mật khẩu xác nhận không khớp.', 'danger')
+        else:
+            admin.password = generate_password_hash(password)
+            admin.password_reset_token_hash = None
+            admin.password_reset_expires_at = None
+            db.session.commit()
+            flash('Mật khẩu quản trị đã được cập nhật. Vui lòng đăng nhập.', 'success')
+            return redirect(url_for('login'))
+    return render_template('customer/customer_reset_password.html', token=token, account_type='admin')
+
 @app.route('/customer/logout', methods=['POST'])
 def customer_logout():
     session.pop('customer_id', None)
@@ -691,11 +842,21 @@ def customer_orders():
         flash('Vui lòng đăng nhập để xem lịch sử thuê.', 'warning')
         return redirect(url_for('customer_login'))
     customer = Customer.query.get_or_404(customer_id)
-    orders = Rental.query.filter_by(customer_id=customer.id).order_by(Rental.rental_date.desc()).all()
-    active_orders = [order for order in orders if order.status in ('pending', 'rented')]
-    completed_orders = [order for order in orders if order.status in ('returned', 'cancelled')]
+    # B6: Pagination cho lịch sử đơn đã hoàn tất
+    page = request.args.get('page', 1, type=int)
+    active_orders = Rental.query.filter(
+        Rental.customer_id == customer.id,
+        Rental.status.in_(['pending', 'rented'])
+    ).order_by(Rental.rental_date.desc()).all()
+    completed_pagination = Rental.query.filter(
+        Rental.customer_id == customer.id,
+        Rental.status.in_(['returned', 'cancelled'])
+    ).order_by(Rental.rental_date.desc()).paginate(page=page, per_page=10, error_out=False)
+    completed_orders = completed_pagination.items
+    orders = active_orders + completed_orders
     return render_template('customer/customer_orders.html', customer=customer, orders=orders,
-                           active_orders=active_orders, completed_orders=completed_orders)
+                           active_orders=active_orders, completed_orders=completed_orders,
+                           completed_pagination=completed_pagination)
 
 @app.route('/customer/orders/<int:id>/payment-proof', methods=['POST'])
 def submit_payment_proof(id):
@@ -734,7 +895,7 @@ def submit_payment_proof(id):
     flash('Đã gửi ảnh giao dịch. Cửa hàng sẽ kiểm tra và xác nhận sớm.', 'success')
     return redirect(url_for('customer_orders'))
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/admin/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
@@ -778,22 +939,52 @@ def dashboard():
         Rental.status == 'returned').scalar() or 0
     low_stock = Product.query.filter(Product.available_quantity <= 2, Product.status == 'active').count()
     recent_rentals = Rental.query.order_by(Rental.rental_date.desc()).limit(5).all()
-    
+
+    # F8: Doanh thu 7 ngay gan nhat cho mini chart
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    chart_labels = []
+    chart_data = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_end = day + timedelta(days=1)
+        revenue = db.session.query(func.sum(Rental.total_amount)).filter(
+            Rental.status == 'returned',
+            Rental.actual_return_date >= day,
+            Rental.actual_return_date < day_end
+        ).scalar() or 0
+        chart_labels.append(day.strftime('%d/%m'))
+        chart_data.append(float(revenue))
+
+    pending_payment = Rental.query.filter(
+        Rental.payment_status == 'customer_submitted').count()
+
     return render_template('admin/dashboard.html',
                          total_customers=total_customers,
                          total_products=total_products,
                          total_rentals=total_rentals,
                          active_rentals=active_rentals, total_revenue=total_revenue,
-                         low_stock=low_stock, recent_rentals=recent_rentals)
+                         low_stock=low_stock, recent_rentals=recent_rentals,
+                         chart_labels=chart_labels, chart_data=chart_data,
+                         pending_payment=pending_payment)
 
 # ==================== QUẢN LÝ KHÁCH HÀNG ====================
 @app.route('/customers')
 @login_required
 def customers():
-    pagination = Customer.query.order_by(Customer.created_at.desc()).paginate(
+    # B4: Tìm kiếm khách hàng theo tên hoặc SĐT
+    q = request.args.get('q', '').strip()
+    query = Customer.query
+    if q:
+        keyword = f'%{q}%'
+        query = query.filter(or_(
+            Customer.fullname.ilike(keyword),
+            Customer.phone.ilike(keyword),
+            Customer.email.ilike(keyword)
+        ))
+    pagination = query.order_by(Customer.created_at.desc()).paginate(
         page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
     return render_template('admin/customers.html', customers=pagination.items,
-                           pagination=pagination)
+                           pagination=pagination, q=q)
 
 @app.route('/add-customer', methods=['GET', 'POST'])
 @login_required
@@ -818,6 +1009,32 @@ def add_customer():
         flash('Thêm khách hàng thành công!', 'success')
         return redirect(url_for('customers'))
     return render_template('admin/add_customer.html')
+
+@app.route('/edit-customer/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_customer(id):
+    customer = Customer.query.get_or_404(id)
+    if request.method == 'POST':
+        fullname = request.form.get('fullname', '').strip()
+        phone = request.form.get('phone', '').strip()
+        email = request.form.get('email', '').strip()
+        if not fullname or not phone:
+            flash('Vui lòng nhập họ tên và số điện thoại!', 'danger')
+            return redirect(url_for('edit_customer', id=id))
+        duplicate = Customer.query.filter(Customer.phone == phone, Customer.id != id).first()
+        if duplicate:
+            flash('Số điện thoại này đã thuộc tài khoản khác!', 'warning')
+            return redirect(url_for('edit_customer', id=id))
+        customer.fullname = fullname
+        customer.phone = phone
+        customer.email = email or None
+        customer.id_card = request.form.get('id_card', '').strip() or None
+        customer.address = request.form.get('address', '').strip() or None
+        customer.notes = request.form.get('notes', '').strip() or None
+        db.session.commit()
+        flash('Cập nhật thông tin khách hàng thành công!', 'success')
+        return redirect(url_for('customers'))
+    return render_template('admin/edit_customer.html', customer=customer)
 
 @app.route('/delete-customer/<int:id>', methods=['POST'])
 @login_required
@@ -990,10 +1207,52 @@ def product_detail(id):
 @app.route('/rentals')
 @login_required
 def rentals():
-    pagination = Rental.query.order_by(Rental.rental_date.desc()).paginate(
+    # B1: Search và filter cho trang đơn thuê
+    q = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    payment_status_filter = request.args.get('payment_status', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+
+    query = Rental.query
+    if q:
+        keyword = f'%{q}%'
+        query = query.join(Customer).filter(or_(
+            Rental.rental_code.ilike(keyword),
+            Customer.fullname.ilike(keyword),
+            Customer.phone.ilike(keyword)
+        ))
+    if status_filter in ('pending', 'rented', 'returned', 'cancelled'):
+        query = query.filter(Rental.status == status_filter)
+    if payment_status_filter in ('customer_submitted',):
+        query = query.filter(Rental.payment_status == payment_status_filter)
+    if date_from:
+        try:
+            query = query.filter(Rental.start_date >= datetime.strptime(date_from, '%Y-%m-%d'))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            # Use an exclusive next-day bound so times later on date_to are included.
+            query = query.filter(Rental.end_date < datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1))
+        except ValueError:
+            pass
+
+    # Đếm theo trạng thái cho badge
+    status_counts = {
+        'all': Rental.query.count(),
+        'pending': Rental.query.filter_by(status='pending').count(),
+        'rented': Rental.query.filter_by(status='rented').count(),
+        'returned': Rental.query.filter_by(status='returned').count(),
+        'cancelled': Rental.query.filter_by(status='cancelled').count(),
+    }
+
+    pagination = query.order_by(Rental.rental_date.desc()).paginate(
         page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
     return render_template('admin/rentals.html', rentals=pagination.items,
-                           pagination=pagination)
+                           pagination=pagination, q=q, status_filter=status_filter,
+                           payment_status_filter=payment_status_filter,
+                           date_from=date_from, date_to=date_to, status_counts=status_counts)
 
 @app.route('/rentals/<int:id>/invoice')
 @login_required
@@ -1245,20 +1504,20 @@ def prepare_rental(id):
 @login_required
 def cancel_rental(id):
     rental = Rental.query.get_or_404(id)
-    
     if rental.status in ['pending', 'rented']:
         rental.status = 'cancelled'
-        
+        # B10: Lưu lý do hủy đơn
+        cancel_reason = request.form.get('cancel_reason', '').strip()[:500]
+        if cancel_reason:
+            rental.cancel_reason = cancel_reason
         for detail in rental.details:
             product = Product.query.get(detail.product_id)
             if product:
                 restore_detail_inventory(product, detail)
-        
         db.session.commit()
         flash(f'Đã hủy đơn thuê {rental.rental_code}!', 'success')
     else:
         flash('Không thể hủy đơn này!', 'danger')
-    
     return redirect(url_for('rentals'))
 
 @app.route('/delete-rental/<int:id>', methods=['POST'])
@@ -1430,10 +1689,12 @@ def reports():
          .join(Rental, Rental.id == RentalDetail.rental_id)\
          .filter(Rental.status == 'returned')\
          .group_by(Product.category).all()
-        
+
         category_labels = [stat[0] for stat in category_stats if stat[0]]
         category_data = [float(stat[1]) for stat in category_stats if stat[1]]
-    except:
+    except Exception:
+        # B2: Sửa bare except – log lỗi thay vì im lặng
+        app.logger.exception('Failed to load category stats for reports')
         category_labels = []
         category_data = []
     
@@ -1445,10 +1706,12 @@ def reports():
         ).join(RentalDetail).join(Rental).filter(
             Rental.status == 'returned'
         ).group_by(Product.id).order_by(func.count(RentalDetail.id).desc()).limit(5).all()
-        
+
         product_labels = [p[0] for p in top_products]
         product_rental_counts = [p[1] for p in top_products]
-    except:
+    except Exception:
+        # B2: Sửa bare except – log lỗi thay vì im lặng
+        app.logger.exception('Failed to load top products for reports')
         product_labels = []
         product_rental_counts = []
     
@@ -1475,9 +1738,23 @@ def reports():
 def export_excel():
     import pandas as pd
     from io import BytesIO
-    
+
+    # B9: Hỗ trợ export theo khoảng ngày
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    query = Rental.query.filter(Rental.status == 'returned')
+    if date_from_str:
+        try:
+            query = query.filter(Rental.actual_return_date >= datetime.strptime(date_from_str, '%Y-%m-%d'))
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            query = query.filter(Rental.actual_return_date < datetime.strptime(date_to_str, '%Y-%m-%d') + timedelta(days=1))
+        except ValueError:
+            pass
     data = []
-    rentals = Rental.query.filter(Rental.status == 'returned').all()
+    rentals = query.all()
     for rental in rentals:
         for detail in rental.details:
             data.append({
@@ -1511,8 +1788,22 @@ def export_pdf():
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from io import BytesIO
-    
-    rentals = Rental.query.filter(Rental.status == 'returned').all()
+
+    # B9: Hỗ trợ export theo khoảng ngày
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    query = Rental.query.filter(Rental.status == 'returned')
+    if date_from_str:
+        try:
+            query = query.filter(Rental.actual_return_date >= datetime.strptime(date_from_str, '%Y-%m-%d'))
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            query = query.filter(Rental.actual_return_date < datetime.strptime(date_to_str, '%Y-%m-%d') + timedelta(days=1))
+        except ValueError:
+            pass
+    rentals = query.all()
     
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30)
@@ -1565,12 +1856,14 @@ def init_db():
             admin = Admin(
                 username=admin_username,
                 password=generate_password_hash(admin_password),
-                email='admin@example.com',
+                email=app.config['ADMIN_EMAIL'] or None,
                 fullname='Administrator'
             )
             db.session.add(admin)
         elif os.environ.get('ADMIN_PASSWORD'):
             existing_admin.password = generate_password_hash(admin_password)
+        if existing_admin and app.config['ADMIN_EMAIL']:
+            existing_admin.email = app.config['ADMIN_EMAIL']
         
         db.session.commit()
         print("Database created successfully!")

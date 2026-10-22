@@ -26,6 +26,13 @@ services:
       MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-512}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Create a .env file with ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_USE_TLS: ${MAIL_USE_TLS:-1}
+      MAIL_FROM: ${MAIL_FROM:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: rental
