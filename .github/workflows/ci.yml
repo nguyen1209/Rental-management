@@ -1,0 +1,42 @@
+﻿name: Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - 'feature/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rental-ci
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run application tests
+        run: python test.py
+        env:
+          SECRET_KEY: github-actions-test-secret
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: github-actions-test-password
