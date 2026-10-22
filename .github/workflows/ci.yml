@@ -23,19 +23,34 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v5
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            checkout_ref="refs/pull/${PR_NUMBER}/merge"
+          else
+            checkout_ref="$GITHUB_SHA"
+          fi
+
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -c http.extraheader="AUTHORIZATION: basic ${auth_header}" \
+            fetch --no-tags --depth=1 origin "$checkout_ref"
+          git checkout --detach FETCH_HEAD
 
       - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-          cache: pip
+        run: |
+          python3 --version
+          python3 -m venv .venv
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: .venv/bin/python -m pip install -r requirements.txt
 
       - name: Run application tests
-        run: python test.py
+        run: .venv/bin/python test.py
         env:
           SECRET_KEY: github-actions-test-secret
           ADMIN_USERNAME: admin
