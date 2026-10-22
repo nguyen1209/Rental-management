@@ -14,6 +14,15 @@ Docker sử dụng PostgreSQL và lưu dữ liệu trong volume `postgres_data`;
 được lưu trong `uploads/`. Lần chạy đầu tiên sẽ tạo một database trống và tài khoản
 admin từ `.env`.
 
+Để bật chức năng quên mật khẩu cho khách hàng và quản trị, cấu hình SMTP trong `.env` bằng
+`MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` và `MAIL_FROM`.
+Mặc định ứng dụng dùng STARTTLS (`MAIL_USE_TLS=1`). Tài khoản cần có email đã
+đăng ký; liên kết đặt lại chỉ dùng một lần và hết hạn sau 30 phút. Sau khi cập
+nhật, áp dụng migration bằng `flask --app app db upgrade`. Đặt `ADMIN_EMAIL`
+thành email nhận khôi phục quản trị; ứng dụng cập nhật email này cho tài khoản
+quản trị khi chạy `init_db`. Tài khoản cũ cần được cấu hình email trước khi dùng
+chức năng khôi phục quản trị.
+
 Kiểm tra PostgreSQL:
 
 ```bash

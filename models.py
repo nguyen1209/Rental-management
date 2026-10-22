@@ -11,26 +11,30 @@ class Admin(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(120), nullable=True)
+    password_reset_token_hash = db.Column(db.String(64), unique=True, index=True)
+    password_reset_expires_at = db.Column(db.DateTime)
     fullname = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     fullname = db.Column(db.String(100), nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
+    phone = db.Column(db.String(20), nullable=False, index=True)
     email = db.Column(db.String(120))
     address = db.Column(db.String(200))
     id_card = db.Column(db.String(20))
     notes = db.Column(db.Text)
     password_hash = db.Column(db.String(200))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+    password_reset_token_hash = db.Column(db.String(64), unique=True, index=True)
+    password_reset_expires_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
     rentals = db.relationship('Rental', backref='customer', lazy=True)
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    category = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(50), nullable=False, index=True)
     gender = db.Column(db.String(20), nullable=False, default='unisex')
     sizes = db.Column(db.String(100))
     variants = db.Column(db.Text)
@@ -40,8 +44,8 @@ class Product(db.Model):
     quantity = db.Column(db.Integer, default=1)
     available_quantity = db.Column(db.Integer, default=1)
     image_url = db.Column(db.String(200))
-    status = db.Column(db.String(20), default='active')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='active', index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     @property
     def size_list(self):
@@ -103,7 +107,7 @@ class Product(db.Model):
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    parent_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    parent_id = db.Column(db.Integer, db.ForeignKey('category.id'), index=True)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     children = db.relationship('Category', backref=db.backref('parent', remote_side=[id]),
@@ -112,28 +116,29 @@ class Category(db.Model):
 class Rental(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     rental_code = db.Column(db.String(50), unique=True, nullable=False)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    rental_date = db.Column(db.DateTime, default=datetime.utcnow)
-    start_date = db.Column(db.DateTime, nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False, index=True)
+    rental_date = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    start_date = db.Column(db.DateTime, nullable=False, index=True)
     end_date = db.Column(db.DateTime, nullable=False)
     actual_return_date = db.Column(db.DateTime)
-    status = db.Column(db.String(20), default='rented')
+    status = db.Column(db.String(20), default='rented', index=True)
     notes = db.Column(db.Text)
     total_amount = db.Column(db.Float, default=0)
     adjustment_amount = db.Column(db.Float, default=0)
     adjustment_note = db.Column(db.Text)
     payment_method = db.Column(db.String(20), default='cash')
-    payment_status = db.Column(db.String(30), default='unpaid')
+    payment_status = db.Column(db.String(30), default='unpaid', index=True)
     paid_at = db.Column(db.DateTime)
     payment_receipt_url = db.Column(db.String(300))
     payment_submitted_at = db.Column(db.DateTime)
-    
+    cancel_reason = db.Column(db.Text)  # B10: Lý do hủy đơn
+
     details = db.relationship('RentalDetail', backref='rental', cascade='all, delete-orphan')
 
 class RentalDetail(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    rental_id = db.Column(db.Integer, db.ForeignKey('rental.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    rental_id = db.Column(db.Integer, db.ForeignKey('rental.id'), nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False, index=True)
     quantity = db.Column(db.Integer, default=1)
     price_per_day = db.Column(db.Float, nullable=False)
     days = db.Column(db.Integer, nullable=False)
@@ -142,5 +147,5 @@ class RentalDetail(db.Model):
     end_date = db.Column(db.DateTime)
     selected_size = db.Column(db.String(10))
     selected_gender = db.Column(db.String(20))
-    
+
     product = db.relationship('Product', backref='rental_details')

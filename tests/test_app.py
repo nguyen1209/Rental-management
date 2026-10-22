@@ -2,6 +2,9 @@ import os
 import io
 import tempfile
 import unittest
+from datetime import datetime
+from urllib.parse import parse_qs, urlparse
+from unittest.mock import patch
 
 TEST_DB = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
 TEST_DB.close()
@@ -9,8 +12,8 @@ os.environ['DATABASE_URL'] = f"sqlite:///{TEST_DB.name.replace(os.sep, '/')}"
 os.environ['SECRET_KEY'] = 'test-secret-key'
 
 from app import app  # noqa: E402
-from models import Admin, Product, Rental, RentalDetail, db  # noqa: E402
-from werkzeug.security import generate_password_hash  # noqa: E402
+from models import Admin, Customer, Product, Rental, RentalDetail, db  # noqa: E402
+from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 
 class RentalAppTestCase(unittest.TestCase):
@@ -37,9 +40,73 @@ class RentalAppTestCase(unittest.TestCase):
             return session['_csrf_token']
 
     def login_admin(self):
-        response = self.client.post('/login', data={
-            '_csrf_token': self.csrf(), 'username': 'admin', 'password': 'admin123'})
+        response = self.client.post('/admin/login', data={
+            '_csrf_token': self.csrf('/admin/login'), 'username': 'admin', 'password': 'admin123'})
         self.assertEqual(response.status_code, 302)
+
+    def test_customer_can_reset_password_with_single_use_email_token(self):
+        with app.app_context():
+            customer = Customer(fullname='Reset Customer', phone='0900000088',
+                                email='reset@example.com',
+                                password_hash=generate_password_hash('old-password'))
+            db.session.add(customer)
+            db.session.commit()
+
+        with patch('app.send_password_reset_email') as send_email:
+            response = self.client.post('/customer/forgot-password', data={
+                '_csrf_token': self.csrf('/customer/forgot-password'),
+                'phone': '0900000088'})
+        self.assertEqual(response.status_code, 302)
+        send_email.assert_called_once()
+        reset_url = send_email.call_args.args[1]
+        token = parse_qs(urlparse(reset_url).query)['token'][0]
+
+        reset_path = '/customer/reset-password'
+        response = self.client.post(reset_path, data={
+            '_csrf_token': self.csrf(reset_path),
+            'token': token,
+            'password': 'new-password-123', 'password_confirm': 'new-password-123'})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            customer = Customer.query.filter_by(phone='0900000088').one()
+            self.assertTrue(check_password_hash(customer.password_hash, 'new-password-123'))
+            self.assertIsNone(customer.password_reset_token_hash)
+            self.assertIsNone(customer.password_reset_expires_at)
+
+        self.assertEqual(self.client.get(reset_path).status_code, 302)
+
+    def test_forgot_password_response_does_not_reveal_unknown_phone(self):
+        with patch('app.send_password_reset_email') as send_email:
+            response = self.client.post('/customer/forgot-password', data={
+                '_csrf_token': self.csrf('/customer/forgot-password'),
+                'phone': '0900000000'})
+        self.assertEqual(response.status_code, 302)
+        send_email.assert_not_called()
+
+    def test_admin_login_has_its_own_password_reset_flow(self):
+        with app.app_context():
+            admin = Admin.query.filter_by(username='admin').one()
+            admin.email = 'owner@example.com'
+            db.session.commit()
+
+        with patch('app.send_password_reset_email') as send_email:
+            response = self.client.post('/admin/forgot-password', data={
+                '_csrf_token': self.csrf('/admin/forgot-password'),
+                'username': 'admin'})
+        self.assertEqual(response.status_code, 302)
+        send_email.assert_called_once()
+        reset_url = send_email.call_args.args[1]
+        token = parse_qs(urlparse(reset_url).query)['token'][0]
+
+        response = self.client.post('/admin/reset-password', data={
+            '_csrf_token': self.csrf('/admin/reset-password'), 'token': token,
+            'password': 'new-admin-password', 'password_confirm': 'new-admin-password'})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, '/admin/login')
+        with app.app_context():
+            admin = Admin.query.filter_by(username='admin').one()
+            self.assertTrue(check_password_hash(admin.password, 'new-admin-password'))
+            self.assertIsNone(admin.password_reset_token_hash)
 
     def create_product(self, quantity=3):
         with app.app_context():
@@ -50,10 +117,13 @@ class RentalAppTestCase(unittest.TestCase):
             return product.id
 
     def test_public_pages_and_csrf_protection(self):
-        for path in ('/health', '/rent', '/customer/login', '/customer/register', '/login'):
+        for path in ('/health', '/rent', '/customer/register', '/login', '/admin/login'):
             self.assertEqual(self.client.get(path).status_code, 200, path)
+        self.assertEqual(self.client.get('/customer/login').status_code, 404)
+        self.assertIn(b'/customer/forgot-password', self.client.get('/login').data)
+        self.assertIn(b'/admin/forgot-password', self.client.get('/admin/login').data)
         self.assertEqual(self.client.get('/checkout').status_code, 302)
-        self.assertIn('/customer/login?next=', self.client.get('/checkout').location)
+        self.assertIn('/login?next=', self.client.get('/checkout').location)
         self.assertEqual(self.client.post('/customer/register', data={}).status_code, 400)
         self.assertEqual(self.client.get('/dashboard').status_code, 302)
 
@@ -225,6 +295,96 @@ class RentalAppTestCase(unittest.TestCase):
         for path in ('/dashboard', '/customers', '/products', '/categories', '/add-product',
                      '/rentals', '/add-rental', '/reports'):
             self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_rentals_date_to_includes_the_entire_selected_day(self):
+        with app.app_context():
+            customer = Customer(fullname='Nguyen Test', phone='0900000091')
+            db.session.add(customer)
+            db.session.flush()
+            db.session.add_all([
+                Rental(rental_code='DATE-IN', customer_id=customer.id,
+                       start_date=datetime(2026, 8, 9), end_date=datetime(2026, 8, 10, 18),
+                       status='returned'),
+                Rental(rental_code='DATE-OUT', customer_id=customer.id,
+                       start_date=datetime(2026, 8, 10), end_date=datetime(2026, 8, 11),
+                       status='returned'),
+            ])
+            db.session.commit()
+        self.login_admin()
+        response = self.client.get('/rentals?date_to=2026-08-10')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'DATE-IN', response.data)
+        self.assertNotIn(b'DATE-OUT', response.data)
+
+    def test_rentals_can_filter_payment_proofs_awaiting_confirmation(self):
+        with app.app_context():
+            customer = Customer(fullname='Nguyen Payment', phone='0900000092')
+            db.session.add(customer)
+            db.session.flush()
+            db.session.add_all([
+                Rental(rental_code='PAYMENT-REVIEW', customer_id=customer.id,
+                       start_date=datetime(2026, 8, 9), end_date=datetime(2026, 8, 10),
+                       status='pending', payment_status='customer_submitted'),
+                Rental(rental_code='PAYMENT-OTHER', customer_id=customer.id,
+                       start_date=datetime(2026, 8, 9), end_date=datetime(2026, 8, 10),
+                       status='rented', payment_status='pending_confirmation'),
+            ])
+            db.session.commit()
+        self.login_admin()
+        dashboard = self.client.get('/dashboard')
+        self.assertIn(b'payment_status=customer_submitted', dashboard.data)
+        response = self.client.get('/rentals?payment_status=customer_submitted')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'PAYMENT-REVIEW', response.data)
+        self.assertNotIn(b'PAYMENT-OTHER', response.data)
+
+    def test_admin_customers_page_renders_with_existing_customers(self):
+        with app.app_context():
+            db.session.add(Customer(fullname='Nguyễn Thị B', phone='0900000011',
+                                    email='b@example.com'))
+            db.session.commit()
+        self.login_admin()
+        response = self.client.get('/customers')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Nguyễn Thị B'.encode(), response.data)
+
+    def test_admin_can_edit_customer_details(self):
+        with app.app_context():
+            customer = Customer(fullname='Nguyễn Thị C', phone='0900000012',
+                                email='c@example.com')
+            db.session.add(customer)
+            db.session.commit()
+            customer_id = customer.id
+        self.login_admin()
+        response = self.client.get(f'/edit-customer/{customer_id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Nguyễn Thị C'.encode(), response.data)
+
+        response = self.client.post(f'/edit-customer/{customer_id}', data={
+            '_csrf_token': self.csrf(f'/edit-customer/{customer_id}'),
+            'fullname': 'Nguyễn Thị C2', 'phone': '0900000013',
+            'email': 'c2@example.com', 'id_card': '123456789',
+            'address': 'Đồng Tháp', 'notes': 'Khách ưu tiên'})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            customer = db.session.get(Customer, customer_id)
+            self.assertEqual(customer.fullname, 'Nguyễn Thị C2')
+            self.assertEqual(customer.phone, '0900000013')
+            self.assertEqual(customer.notes, 'Khách ưu tiên')
+
+    def test_edit_customer_rejects_duplicate_phone(self):
+        with app.app_context():
+            db.session.add(Customer(fullname='Khách Một', phone='0900000014'))
+            db.session.add(Customer(fullname='Khách Hai', phone='0900000015'))
+            db.session.commit()
+            second_id = Customer.query.filter_by(phone='0900000015').one().id
+        self.login_admin()
+        response = self.client.post(f'/edit-customer/{second_id}', data={
+            '_csrf_token': self.csrf(f'/edit-customer/{second_id}'),
+            'fullname': 'Khách Hai', 'phone': '0900000014'})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            self.assertEqual(db.session.get(Customer, second_id).phone, '0900000015')
 
     def test_admin_can_upload_product_photo_from_phone_camera(self):
         self.login_admin()

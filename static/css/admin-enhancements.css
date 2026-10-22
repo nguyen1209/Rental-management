@@ -1,0 +1,283 @@
+/* =====================================================
+   admin-enhancements.css – Tổng hợp cải thiện admin
+   B1/F3: Rental filter bar & status tabs
+   F5: Mobile responsive admin tables
+   F7: Modal improvements
+   F8: Dashboard chart panel
+   ===================================================== */
+
+/* === B1/F3: Rental Status Tabs === */
+.rental-status-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 4px;
+    background: var(--surface-2, #f3f4f6);
+    border-radius: 12px;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.status-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: .85rem;
+    font-weight: 500;
+    color: #6b7280;
+    text-decoration: none;
+    transition: all .2s ease;
+    white-space: nowrap;
+}
+
+.status-tab:hover {
+    background: white;
+    color: #374151;
+    text-decoration: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+
+.status-tab.active {
+    background: white;
+    color: #111827;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+
+.tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: #e5e7eb;
+    color: #374151;
+    font-size: .75rem;
+    font-weight: 700;
+}
+
+.tab-badge.badge-pending  { background: #fef3c7; color: #92400e; }
+.tab-badge.badge-rented   { background: #dbeafe; color: #1e40af; }
+.tab-badge.badge-returned { background: #d1fae5; color: #065f46; }
+.tab-badge.badge-cancelled{ background: #e3f4e8; color: #24703c; }
+
+/* === B1/F3: Filter bar === */
+.rentals-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.filter-search {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+}
+
+.filter-search i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+    font-size: .9rem;
+}
+
+.filter-search input {
+    width: 100%;
+    padding: 8px 12px 8px 36px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: .9rem;
+    transition: border-color .2s;
+    background: white;
+}
+
+.filter-search input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+}
+
+.filter-dates {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.filter-dates label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: .82rem;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.filter-dates input[type="date"] {
+    padding: 6px 10px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: .85rem;
+    background: white;
+}
+
+/* Export bar */
+.export-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+/* === F5: Mobile responsive admin tables === */
+@media (max-width: 768px) {
+    /* Sidebar thu nhỏ */
+    .sidebar {
+        width: 56px !important;
+        overflow: hidden;
+    }
+
+    .sidebar .admin-brand > span,
+    .sidebar nav a > :not(.fa-solid):not(.fa-regular),
+    .sidebar-foot a > :not(.fa-solid):not(.fa-regular),
+    .sidebar-foot form button > :not(.fa-solid):not(.fa-regular) {
+        display: none;
+    }
+
+    .sidebar nav a,
+    .sidebar-foot a,
+    .sidebar-foot button {
+        justify-content: center;
+        padding: 12px 0 !important;
+    }
+
+    .main-content {
+        padding: 12px !important;
+    }
+
+    .admin-top strong,
+    .admin-top small {
+        display: none;
+    }
+
+    /* Stats grid 2 cột trên mobile */
+    .stats-grid {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+    }
+
+    /* Dashboard grid stack */
+    .dashboard-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Rental status tabs cuộn ngang */
+    .rental-status-tabs {
+        width: 100%;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        border-radius: 10px;
+        scrollbar-width: none;
+    }
+    .rental-status-tabs::-webkit-scrollbar { display: none; }
+
+    /* Filter bar stack dọc */
+    .rentals-filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-search { min-width: unset; }
+
+    /* Table admin: ẩn cột ít quan trọng trên mobile */
+    .rental-panel thead th:nth-child(3),
+    .rental-panel tbody td:nth-child(3) {
+        display: none;
+    }
+
+    /* Page title stack */
+    .page-title {
+        flex-direction: column !important;
+        gap: 10px !important;
+        align-items: flex-start !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .rental-panel thead th:nth-child(6),
+    .rental-panel tbody td:nth-child(6) {
+        display: none;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* === F8: Dashboard chart panel === */
+.dashboard-chart-panel {
+    grid-column: 1 / -1;
+}
+
+@media (min-width: 992px) {
+    .dashboard-chart-panel {
+        grid-column: auto;
+    }
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    .dashboard-grid .quick-panel {
+        grid-column: auto;
+    }
+}
+
+/* === Lazy load skeleton === */
+img[loading="lazy"] {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    min-height: 40px;
+}
+
+/* === F7: Modal improvements === */
+.modal-content {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.15);
+}
+
+.modal-header {
+    border-bottom: 1px solid #f3f4f6;
+    padding: 20px 24px 16px;
+}
+
+.modal-body {
+    padding: 20px 24px;
+}
+
+.modal-footer {
+    border-top: 1px solid #f3f4f6;
+    padding: 16px 24px 20px;
+}
+
+/* Customers page improvements */
+.customers-table a[href^="tel"] {
+    color: #374151;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.customers-table a[href^="tel"]:hover {
+    color: #6366f1;
+}
