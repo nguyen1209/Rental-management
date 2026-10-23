@@ -3,17 +3,15 @@
 {% block title %}Quản lý sản phẩm{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2>Quản lý sản phẩm</h2>
-    <a href="{{ url_for('add_product') }}" class="btn btn-primary">
-        <i class="fas fa-plus"></i> Thêm sản phẩm
-    </a>
+<div class="products-heading">
+    <div><span class="eyebrow">KHO HÀNG</span><h1>Quản lý sản phẩm</h1><p>Tra cứu, theo dõi tồn kho và cập nhật sản phẩm.</p></div>
+    <a href="{{ url_for('add_product') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Thêm sản phẩm</a>
 </div>
 
 <div class="card mb-4">
     <div class="card-body">
-        <form method="GET" class="row">
-            <div class="col-md-4">
+        <form method="GET" class="row g-2 align-items-center">
+            <div class="col-md-4 col-lg-3">
                 <select name="category" class="form-select">
                     <option value="">Tất cả danh mục</option>
                     {% for cat in categories %}
@@ -23,7 +21,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-4 col-lg-3">
                 <button type="submit" class="btn btn-primary">Lọc</button>
                 <a href="{{ url_for('products') }}" class="btn btn-secondary">Xóa lọc</a>
             </div>
@@ -31,71 +29,69 @@
     </div>
 </div>
 
-<div class="table-responsive">
-    <table class="table table-hover">
+<div class="products-table-wrap">
+    <table class="table products-table">
         <thead>
             <tr>
-                <th style="width: 80px">Hình ảnh</th>
-                <th>ID</th>
-                <th>Tên sản phẩm</th>
-                <th>Danh mục</th>
-                <th>Phân loại / Size</th>
-                <th>Giá/ngày</th>
-                <th>Tiền cọc</th>
-                <th>Số lượng</th>
-                <th>Còn lại</th>
-                <th>Thao tác</th>
+                <th class="image-col">Ảnh</th>
+                <th class="id-col">Mã</th>
+                <th class="name-col">Tên sản phẩm</th>
+                <th class="category-col">Danh mục</th>
+                <th class="variant-col">Phân loại và size</th>
+                <th class="money-col">Giá thuê/ngày</th>
+                <th class="money-col">Tiền cọc</th>
+                <th class="count-col">Tổng</th>
+                <th class="count-col">Còn lại</th>
+                <th class="actions-col">Thao tác</th>
             </tr>
         </thead>
         <tbody>
             {% for product in products %}
             <tr>
-                <td>
+                <td class="product-image-cell">
                     {% if product.image_url %}
                         <img src="{{ product.image_url }}" alt="{{ product.name }}" 
-                             style="width: 50px; height: 50px; object-fit: cover; border-radius: 5px;"
+                             class="product-thumb"
                              onerror="this.src='https://via.placeholder.com/50x50?text=Error'">
                     {% else %}
-                        <img src="https://via.placeholder.com/50x50?text=No+Image" 
-                             alt="No image" 
-                             style="width: 50px; height: 50px; object-fit: cover; border-radius: 5px;">
+                        <div class="product-thumb product-thumb-empty" role="img" aria-label="Chưa có ảnh"><i class="fa-regular fa-image"></i></div>
                     {% endif %}
                 </td>
-                <td>{{ product.id }}</td>
-                <td>{{ product.name }}</td>
-                <td>
-                    <span class="badge bg-info">{{ product.category }}</span>
-                </td>
-                <td>{% if product.variant_list %}{% for variant in product.variant_list if variant.quantity > 0 %}<small class="d-block">{{ product_genders.get(variant.gender, variant.gender) }}{% if variant.size %} · {{ variant.size }}{% endif %}: còn {{ variant.available }}/{{ variant.quantity }}</small>{% endfor %}{% else %}{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}{% endif %}</td>
-                <td>{{ "{:,.0f}".format(product.price_per_day) }} VNĐ</td>
-                <td>{{ "{:,.0f}".format(product.deposit) }} VNĐ</td>
-                <td>{{ product.quantity }}</td>
+                <td class="product-id">#{{ product.id }}</td>
+                <td><strong class="product-name">{{ product.name }}</strong></td>
+                <td><span class="category-pill">{{ product.category }}</span></td>
+                <td><div class="variant-list">{% if product.variant_list %}{% for variant in product.variant_list if variant.quantity > 0 %}<div class="variant-item"><span>{{ product_genders.get(variant.gender, variant.gender) }}{% if variant.size %} · size {{ variant.size }}{% endif %}</span><b>{{ variant.available }} <small>/ {{ variant.quantity }}</small></b></div>{% endfor %}{% else %}<div class="variant-item"><span>{{ product_genders.get(product.gender or 'unisex', 'Unisex') }}</span></div>{% endif %}</div></td>
+                <td class="money-value">{{ "{:,.0f}".format(product.price_per_day) }} <small>₫/ngày</small></td>
+                <td class="money-value">{{ "{:,.0f}".format(product.deposit or 0) }} <small>₫</small></td>
+                <td class="count-value">{{ product.quantity }}</td>
                 <td>
                     {% if product.available_quantity > 0 %}
-                        <span class="badge bg-success">{{ product.available_quantity }}</span>
+                        <span class="stock-pill in-stock">{{ product.available_quantity }} <small>sẵn có</small></span>
                     {% else %}
-                        <span class="badge bg-danger">Hết hàng</span>
+                        <span class="stock-pill out-of-stock">Hết hàng</span>
                     {% endif %}
                 </td>
                 <td>
-                    <a href="{{ url_for('product_detail', id=product.id) }}" class="btn btn-sm btn-info" title="Xem chi tiết">
-                        <i class="fas fa-eye"></i>
+                    <div class="product-actions">
+                    <a href="{{ url_for('product_detail', id=product.id) }}" class="btn btn-sm btn-info" aria-label="Xem {{ product.name }}" title="Xem chi tiết">
+                        <i class="fas fa-eye" aria-hidden="true"></i><span>Xem</span>
                     </a>
-                    <a href="{{ url_for('edit_product', id=product.id) }}" class="btn btn-sm btn-warning" title="Sửa">
-                        <i class="fas fa-edit"></i>
+                    <a href="{{ url_for('edit_product', id=product.id) }}" class="btn btn-sm btn-warning" aria-label="Sửa {{ product.name }}" title="Chỉnh sửa">
+                        <i class="fas fa-edit" aria-hidden="true"></i><span>Sửa</span>
                     </a>
                     <form method="post" action="{{ url_for('delete_product', id=product.id) }}" class="inline-form"
                        onsubmit="return confirm('Bạn có chắc muốn xóa sản phẩm {{ product.name }}?')">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                        <button class="btn btn-sm btn-danger" title="Xóa">
-                        <i class="fas fa-trash"></i>
+                        <button class="btn btn-sm btn-danger" type="submit" aria-label="Xóa {{ product.name }}" title="Xóa">
+                        <i class="fas fa-trash" aria-hidden="true"></i><span>Xóa</span>
                         </button>
                     </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" class="text-center text-muted py-4">
+                <td colspan="10" class="text-center text-muted py-4">
                     <i class="fas fa-box-open fa-3x mb-2 d-block"></i>
                     Chưa có sản phẩm nào. Hãy <a href="{{ url_for('add_product') }}">thêm sản phẩm</a> đầu tiên!
                 </td>
@@ -107,14 +103,7 @@
 
 {% include 'admin/_pagination.html' %}
 <style>
-    .table td {
-        vertical-align: middle;
-    }
-    .table img {
-        transition: transform 0.2s;
-    }
-    .table img:hover {
-        transform: scale(5);
-    }
+.products-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin:28px 0 22px}.products-heading h1{font-size:28px;font-weight:750;margin:5px 0}.products-heading p{color:#68756e;margin:0}.products-table-wrap{overflow:auto;background:#fff;border:1px solid #dce4df;border-radius:12px}.products-table{min-width:1120px;margin:0;font-size:13px}.products-table thead th{position:sticky;top:0;background:#f5f8f6;color:#405047;font-size:12px;font-weight:700;white-space:nowrap;border-bottom:1px solid #dce4df;padding:15px 12px}.products-table tbody td{vertical-align:middle;padding:14px 12px;border-color:#edf1ee}.products-table tbody tr:hover{background:#f8fbf9}.image-col{width:82px}.id-col{width:66px}.name-col{min-width:165px}.category-col{min-width:125px}.variant-col{min-width:210px}.money-col{min-width:128px}.count-col{min-width:78px}.actions-col{min-width:190px}.product-thumb{display:block;width:58px;height:68px;object-fit:cover;border-radius:9px;border:1px solid #e2e8e3}.product-thumb-empty{display:grid;place-items:center;color:#89968e;background:#f2f5f3;font-size:20px}.product-id{font-variant-numeric:tabular-nums;color:#647169}.product-name{color:#24352b;font-size:14px;line-height:1.4}.category-pill{display:inline-block;background:#eaf4ee;color:#276340;padding:6px 10px;border-radius:999px;font-weight:650;line-height:1.3}.variant-list{display:grid;gap:6px}.variant-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 8px;background:#f6f8f6;border-radius:6px;color:#405047;white-space:nowrap}.variant-item b{font-variant-numeric:tabular-nums;color:#24352b}.variant-item small,.money-value small,.stock-pill small{font-size:11px;font-weight:500;color:#718078}.money-value{white-space:nowrap;font-weight:700;font-variant-numeric:tabular-nums;color:#24352b}.count-value{text-align:center;font-weight:700;font-variant-numeric:tabular-nums}.stock-pill{display:inline-block;padding:5px 9px;border-radius:999px;font-weight:700;white-space:nowrap}.in-stock{background:#e7f5eb;color:#267242}.out-of-stock{background:#fff0ee;color:#ae3f34}.product-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}.product-actions .btn{display:inline-flex;align-items:center;gap:6px}.product-actions form{margin:0}.product-actions .btn-info{background:#e8f5fb;border-color:#c9e7f4;color:#176487}.product-actions .btn-warning{background:#fff4dc;border-color:#f3dfae;color:#79530b}.product-actions .btn-danger{background:#fff0ee;border-color:#f2d2ce;color:#a43830}.products-table img{transition:transform .18s ease}.products-table img:hover{position:relative;z-index:2;transform:scale(1.8)}
+@media(max-width:700px){.products-heading{align-items:flex-start}.products-heading h1{font-size:23px}.products-heading .btn{white-space:nowrap}.products-heading .btn i{margin-right:4px}}
 </style>
 {% endblock %}

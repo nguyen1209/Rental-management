@@ -1,157 +1,82 @@
 {% extends "base.html" %}
-
-{% block title %}Báo cáo thống kê{% endblock %}
-
+{% block title %}B&#225;o c&#225;o th&#7889;ng k&#234;{% endblock %}
 {% block content %}
-<h2 class="mb-4">Báo cáo thống kê</h2>
+<div class="reports-page">
+  <header class="reports-heading">
+    <div><span class="eyebrow">PH&#194;N T&#205;CH KINH DOANH</span><h1>B&#225;o c&#225;o</h1><p>Theo d&#245;i doanh thu v&#224; hi&#7879;u qu&#7843; cho thu&#234; theo t&#7915;ng k&#7923;.</p></div>
+    <div class="report-period-summary"><i class="fa-regular fa-calendar"></i><span>{{ start_date }} &ndash; {{ end_date }}</span></div>
+  </header>
 
-<!-- Bộ lọc -->
-<div class="card mb-4">
-    <div class="card-body">
-        <form method="GET" class="row">
-            <div class="col-md-3">
-                <select name="report_type" class="form-select" onchange="this.form.submit()">
-                    <option value="day" {% if report_type == 'day' %}selected{% endif %}>Theo ngày</option>
-                    <option value="week" {% if report_type == 'week' %}selected{% endif %}>Theo tuần</option>
-                    <option value="month" {% if report_type == 'month' %}selected{% endif %}>Theo tháng</option>
-                    <option value="year" {% if report_type == 'year' %}selected{% endif %}>Theo năm</option>
-                </select>
-            </div>
-            <div class="col-md-3">
-                <input type="text" name="period" class="form-control" value="{{ period }}">
-            </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary">Xem</button>
-            </div>
-        </form>
-    </div>
+  <section class="report-filter-card" aria-label="B&#7897; l&#7885;c b&#225;o c&#225;o">
+    <form method="get" action="{{ url_for('reports') }}" class="report-filter-form" id="reportFilterForm">
+      <label><span>Nh&#243;m th&#7901;i gian</span><select name="report_type" id="reportType" class="form-select"><option value="day" {{ 'selected' if report_type == 'day' }}>Theo ng&#224;y</option><option value="week" {{ 'selected' if report_type == 'week' }}>Theo tu&#7847;n</option><option value="month" {{ 'selected' if report_type == 'month' }}>Theo th&#225;ng</option><option value="year" {{ 'selected' if report_type == 'year' }}>Theo n&#259;m</option></select></label>
+      <label class="period-input-label"><span>K&#7923; b&#225;o c&#225;o</span><input class="form-control" id="reportPeriod" name="period" value="{{ period }}" required></label>
+      <button type="submit" class="btn btn-primary report-submit"><i class="fa-solid fa-chart-line"></i> Xem b&#225;o c&#225;o</button>
+      <a class="report-reset" href="{{ url_for('reports') }}">K&#7923; hi&#7879;n t&#7841;i</a>
+    </form>
+  </section>
+
+  <section class="report-kpis" aria-label="Ch&#7881; s&#7889; t&#7893;ng quan">
+    <article class="report-kpi revenue-kpi"><span class="kpi-icon"><i class="fa-solid fa-wallet"></i></span><div><small>T&#7893;ng doanh thu</small><strong>{{ '{:,.0f}'.format(total_revenue|default(0)) }}&#8363;</strong><span class="kpi-caption">Trong k&#7923; &#273;ang xem</span></div></article>
+    <article class="report-kpi rental-kpi"><span class="kpi-icon"><i class="fa-solid fa-receipt"></i></span><div><small>&#272;&#417;n &#273;&#227; ho&#224;n t&#7845;t</small><strong>{{ total_rentals|default(0) }}</strong><span class="kpi-caption">&#272;&#417;n &#273;&#227; tr&#7843;</span></div></article>
+    <article class="report-kpi customer-kpi"><span class="kpi-icon"><i class="fa-solid fa-users"></i></span><div><small>Kh&#225;ch h&#224;ng</small><strong>{{ unique_customers|default(0) }}</strong><span class="kpi-caption">Kh&#225;ch c&#243; &#273;&#417;n ho&#224;n t&#7845;t</span></div></article>
+    <article class="report-kpi average-kpi"><span class="kpi-icon"><i class="fa-solid fa-chart-simple"></i></span><div><small>Doanh thu trung b&#236;nh</small><strong>{{ '{:,.0f}'.format(avg_per_rental|default(0)) }}&#8363;</strong><span class="kpi-caption">Tr&#234;n m&#7895;i &#273;&#417;n ho&#224;n t&#7845;t</span></div></article>
+  </section>
+
+  <section class="report-chart-card">
+    <div class="report-section-heading"><div><h2>Xu h&#432;&#7899;ng doanh thu</h2><p>Doanh thu ghi nh&#7853;n theo t&#7915;ng m&#7889;c th&#7901;i gian.</p></div><span class="chart-legend"><i></i> Doanh thu</span></div>
+    <div class="revenue-chart-wrap"><canvas id="revenueChart" aria-label="Bi&#7875;u &#273;&#7891; doanh thu"></canvas></div>
+  </section>
+
+  <section class="report-data-grid">
+    <article class="report-chart-card category-chart-card"><div class="report-section-heading"><div><h2>Doanh thu theo danh m&#7909;c</h2><p>T&#237;ch l&#361;y t&#7915; c&#225;c &#273;&#417;n &#273;&#227; ho&#224;n t&#7845;t.</p></div></div><div class="category-chart-wrap">{% if category_labels %}<canvas id="categoryChart" aria-label="Bi&#7875;u &#273;&#7891; doanh thu theo danh m&#7909;c"></canvas>{% else %}<div class="report-empty">Ch&#432;a c&#243; d&#7919; li&#7879;u danh m&#7909;c.</div>{% endif %}</div></article>
+    <article class="report-chart-card periods-card"><div class="report-section-heading"><div><h2>Chi ti&#7871;t theo k&#7923;</h2><p>Doanh thu c&#7911;a t&#7915;ng m&#7889;c trong b&#225;o c&#225;o.</p></div></div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>K&#7923;</th><th>Doanh thu</th></tr></thead><tbody>{% for i in range(labels|length) %}<tr><td>{{ labels[i] }}</td><td>{{ '{:,.0f}'.format(revenue_data[i]) }}&#8363;</td></tr>{% else %}<tr><td colspan="2" class="report-empty">Ch&#432;a c&#243; d&#7919; li&#7879;u.</td></tr>{% endfor %}</tbody></table></div></article>
+  </section>
+
+  <section class="report-data-grid report-ranking-grid">
+    <article class="report-chart-card"><div class="report-section-heading"><div><h2>S&#7843;n ph&#7849;m &#273;&#432;&#7907;c thu&#234; nhi&#7873;u</h2><p>X&#7871;p h&#7841;ng tr&#234;n t&#7845;t c&#7843; &#273;&#417;n &#273;&#227; ho&#224;n t&#7845;t.</p></div></div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>#</th><th>S&#7843;n ph&#7849;m</th><th>L&#432;&#7907;t thu&#234;</th></tr></thead><tbody>{% for i in range(product_labels|length) %}<tr><td><span class="rank-number">{{ i + 1 }}</span></td><td>{{ product_labels[i] }}</td><td><strong>{{ product_rental_counts[i] }}</strong></td></tr>{% else %}<tr><td colspan="3" class="report-empty">Ch&#432;a c&#243; d&#7919; li&#7879;u.</td></tr>{% endfor %}</tbody></table></div></article>
+    <article class="report-chart-card"><div class="report-section-heading"><div><h2>Kh&#225;ch h&#224;ng th&#226;n thi&#7871;t</h2><p>X&#7871;p h&#7841;ng tr&#234;n t&#7845;t c&#7843; &#273;&#417;n &#273;&#227; ho&#224;n t&#7845;t.</p></div></div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Kh&#225;ch h&#224;ng</th><th>S&#7889; &#273;&#417;n</th><th>Doanh thu</th></tr></thead><tbody>{% for customer in top_customers %}<tr><td><strong>{{ customer.fullname }}</strong><small class="report-subtext">{{ customer.phone or '' }}</small></td><td>{{ customer.rental_count }}</td><td>{{ '{:,.0f}'.format(customer.total_amount) }}&#8363;</td></tr>{% else %}<tr><td colspan="3" class="report-empty">Ch&#432;a c&#243; d&#7919; li&#7879;u.</td></tr>{% endfor %}</tbody></table></div></article>
+  </section>
 </div>
-
-<!-- Thống kê nhanh -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <h3>{{ "{:,.0f}".format(total_revenue|default(0)) }}đ</h3>
-                <p>Tổng doanh thu</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <h3>{{ total_rentals|default(0) }}</h3>
-                <p>Số đơn thuê</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <h3>{{ unique_customers|default(0) }}</h3>
-                <p>Khách hàng</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card bg-warning text-white">
-            <div class="card-body">
-                <h3>{{ "{:,.0f}".format(avg_per_rental|default(0)) }}đ</h3>
-                <p>Trung bình/đơn</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Biểu đồ -->
-<div class="card">
-    <div class="card-header">
-        <h5>Biểu đồ doanh thu theo thời gian</h5>
-    </div>
-    <div class="card-body">
-        <canvas id="myChart" style="width:100%; height:400px;"></canvas>
-    </div>
-</div>
-
-<!-- Bảng chi tiết -->
-<div class="card mt-4">
-    <div class="card-header">
-        <h5>Chi tiết doanh thu</h5>
-    </div>
-    <div class="card-body">
-        <table class="table table-bordered">
-            <thead>
-                <tr><th>Kỳ</th><th>Doanh thu</th></tr>
-            </thead>
-            <tbody>
-                {% for i in range(labels|length) %}
-                <tr>
-                    <td>{{ labels[i] }}</td>
-                    <td>{{ "{:,.0f}".format(revenue_data[i]) }}đ</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- IMPORT CHART.JS - DÙNG SCRIPT TRUYỀN THỐNG -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-
 <script>
-// Đợi trang load xong
-window.onload = function() {
-    console.log("Trang đã load, bắt đầu vẽ biểu đồ");
-    
-    const labels = {{ labels|safe }};
-    const data = {{ revenue_data|safe }};
-    
-    console.log("Labels:", labels);
-    console.log("Data:", data);
-    
-    // Kiểm tra xem Chart có tồn tại không
-    if (typeof Chart === 'undefined') {
-        console.error("Chart.js chưa được load!");
-        document.getElementById('myChart').innerHTML = '<p class="text-danger">Lỗi: Chart.js chưa được tải</p>';
-        return;
+(() => {
+  const typeInput = document.getElementById('reportType');
+  const periodInput = document.getElementById('reportPeriod');
+  const formats = {day: ['date', 'YYYY-MM-DD'], week: ['date', 'YYYY-MM-DD'], month: ['month', 'YYYY-MM'], year: ['number', 'YYYY']};
+  const updatePeriodInput = (reset = false) => {
+    const [inputType, placeholder] = formats[typeInput.value] || formats.month;
+    periodInput.type = inputType;
+    periodInput.placeholder = placeholder;
+    if (reset) {
+      const today = new Date();
+      const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      const yearMonth = localDate.slice(0, 7);
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      const localMonday = new Date(monday.getTime() - monday.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      periodInput.value = typeInput.value === 'year' ? localDate.slice(0, 4) : typeInput.value === 'month' ? yearMonth : typeInput.value === 'week' ? localMonday : localDate;
     }
-    
-    const canvas = document.getElementById('myChart');
-    if (!canvas) {
-        console.error("Không tìm thấy canvas!");
-        return;
-    }
-    
-    const ctx = canvas.getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Doanh thu (VNĐ)',
-                data: data,
-                backgroundColor: '#667eea',
-                borderColor: '#764ba2',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return value.toLocaleString('vi-VN') + 'đ';
-                        }
-                    }
-                }
-            }
-        }
-    });
-    
-    console.log("Biểu đồ đã được vẽ!");
-};
+    if (inputType === 'number') { periodInput.min = '2000'; periodInput.max = '2100'; periodInput.step = '1'; }
+    else { periodInput.removeAttribute('min'); periodInput.removeAttribute('max'); periodInput.removeAttribute('step'); }
+  };
+  typeInput.addEventListener('change', () => updatePeriodInput(true));
+  updatePeriodInput();
+
+  if (typeof Chart === 'undefined') return;
+  const money = value => new Intl.NumberFormat('vi-VN').format(value) + ' ₫';
+  const revenueCanvas = document.getElementById('revenueChart');
+  if (revenueCanvas) new Chart(revenueCanvas, {
+    type: 'bar',
+    data: {labels: {{ labels|tojson }}, datasets: [{label: 'Revenue', data: {{ revenue_data|tojson }}, backgroundColor: '#327a55', hoverBackgroundColor: '#245f40', borderRadius: 6, maxBarThickness: 42}]},
+    options: {responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}, tooltip: {callbacks: {label: context => money(context.raw)}}}, scales: {x: {grid: {display: false}, ticks: {color: '#68776d'}}, y: {beginAtZero: true, grid: {color: '#edf1ee'}, ticks: {color: '#68776d', callback: money}}}}
+  });
+  const categoryCanvas = document.getElementById('categoryChart');
+  if (categoryCanvas) new Chart(categoryCanvas, {
+    type: 'doughnut',
+    data: {labels: {{ category_labels|tojson }}, datasets: [{data: {{ category_data|tojson }}, backgroundColor: ['#327a55','#70a889','#b3d1bd','#e1b766','#7b91ba','#bd8c91','#91a4a0'], borderColor: '#fff', borderWidth: 3, hoverOffset: 5}]},
+    options: {responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: {legend: {position: 'bottom', labels: {usePointStyle: true, pointStyle: 'circle', padding: 16, color: '#536259'}}, tooltip: {callbacks: {label: context => `${context.label}: ${money(context.raw)}`}}}}
+  });
+})();
 </script>
 {% endblock %}

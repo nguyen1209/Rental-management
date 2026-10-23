@@ -12,7 +12,7 @@ os.environ['DATABASE_URL'] = f"sqlite:///{TEST_DB.name.replace(os.sep, '/')}"
 os.environ['SECRET_KEY'] = 'test-secret-key'
 
 from app import app  # noqa: E402
-from models import Admin, Customer, Product, Rental, RentalDetail, db  # noqa: E402
+from models import Admin, Category, Customer, Product, Rental, RentalDetail, db  # noqa: E402
 from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 
@@ -115,6 +115,88 @@ class RentalAppTestCase(unittest.TestCase):
             db.session.add(product)
             db.session.commit()
             return product.id
+
+    def test_admin_can_open_product_edit_form_with_category_options(self):
+        product_id = self.create_product()
+        with app.app_context():
+            root = Category(name='Trang phục', sort_order=0)
+            root.children.append(Category(name='Áo dài', sort_order=0))
+            db.session.add(root)
+            db.session.commit()
+
+        self.login_admin()
+        response = self.client.get(f'/edit-product/{product_id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'name="category"', response.data)
+        self.assertIn('Áo dài'.encode(), response.data)
+        self.assertIn('value="Áo dài"'.encode(), response.data)
+
+    def test_add_product_validation_keeps_submitted_values(self):
+        self.login_admin()
+        response = self.client.post('/add-product', data={
+            '_csrf_token': self.csrf('/add-product'),
+            'name': 'Áo thử nhập thiếu giá', 'category': 'Quần áo',
+            'description': 'Mô tả cần giữ lại', 'price_per_day': '', 'deposit': '25000',
+            'variant_gender[]': ['male'], 'variant_size[]': ['M'],
+            'variant_quantity[]': ['2'],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Áo thử nhập thiếu giá'.encode(), response.data)
+        self.assertIn('Mô tả cần giữ lại'.encode(), response.data)
+        self.assertIn(b'name="price_per_day" class="form-control" value=""', response.data)
+        self.assertIn(b'name="variant_quantity[]" class="form-control" min="0" value="2"', response.data)
+        with app.app_context():
+            self.assertEqual(Product.query.count(), 0)
+
+    def test_edit_product_validation_keeps_submitted_values(self):
+        product_id = self.create_product(quantity=2)
+        self.login_admin()
+        response = self.client.post(f'/edit-product/{product_id}', data={
+            '_csrf_token': self.csrf(f'/edit-product/{product_id}'),
+            'name': 'Tên mới cần giữ', 'category': 'Danh mục mới',
+            'description': 'Mô tả mới cần giữ', 'price_per_day': '',
+            'deposit': '35000', 'variant_gender[]': ['male'],
+            'variant_size[]': ['M'], 'variant_quantity[]': ['1'],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Tên mới cần giữ'.encode(), response.data)
+        self.assertIn('Mô tả mới cần giữ'.encode(), response.data)
+        self.assertIn(b'name="price_per_day" class="form-control" value=""', response.data)
+        self.assertIn(b'name="variant_quantity[]" class="form-control" min="0" value="1"', response.data)
+        with app.app_context():
+            product = db.session.get(Product, product_id)
+            self.assertEqual(product.name, 'Áo dài đỏ')
+
+    def test_admin_can_update_product_from_edit_form(self):
+        product_id = self.create_product(quantity=3)
+        with app.app_context():
+            product = db.session.get(Product, product_id)
+            product.image_url = '/static/uploads/product.jpg'
+            db.session.commit()
+        self.login_admin()
+        edit_page = self.client.get(f'/edit-product/{product_id}')
+        self.assertEqual(edit_page.status_code, 200)
+        self.assertIn(b'type="text" name="image_url"', edit_page.data)
+        self.assertIn(b'value="/static/uploads/product.jpg"', edit_page.data)
+        sizes = ('XS', 'S', 'M', 'L', 'XL', 'XXL')
+        response = self.client.post(f'/edit-product/{product_id}', data={
+            '_csrf_token': self.csrf(f'/edit-product/{product_id}'),
+            'name': 'Áo đã cập nhật', 'category': 'Phụ kiện',
+            'description': 'Mô tả cập nhật', 'price_per_day': '150000', 'deposit': '50000',
+            'image_url': '/static/uploads/product.jpg',
+            'variant_gender[]': ['male'] * len(sizes),
+            'variant_size[]': list(sizes), 'variant_quantity[]': ['0', '0', '3', '0', '0', '0'],
+        })
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            product = db.session.get(Product, product_id)
+            self.assertEqual(product.name, 'Áo đã cập nhật')
+            self.assertEqual(product.category, 'Phụ kiện')
+            self.assertEqual(product.description, 'Mô tả cập nhật')
+            self.assertEqual(product.price_per_day, 150000)
+            self.assertEqual(product.deposit, 50000)
+            self.assertEqual(product.quantity, 3)
+            self.assertEqual(product.image_url, '/static/uploads/product.jpg')
 
     def test_public_pages_and_csrf_protection(self):
         for path in ('/health', '/rent', '/customer/register', '/login', '/admin/login'):
@@ -514,6 +596,47 @@ class RentalAppTestCase(unittest.TestCase):
         self.assertEqual(pdf.content_type, 'application/pdf')
         self.assertTrue(pdf.data.startswith(b'%PDF'))
 
+    def test_reports_dashboard_renders_selected_period_and_chart_data(self):
+        self.login_admin()
+        response = self.client.get('/reports?report_type=month&period=2026-10')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'class="reports-page"', response.data)
+        self.assertIn(b'id="reportType"', response.data)
+        self.assertIn(b'id="reportPeriod"', response.data)
+        self.assertIn(b'id="revenueChart"', response.data)
+        self.assertIn(b'T&#7893;ng doanh thu', response.data)
+
+
+    def test_admin_can_open_rental_details_and_mark_cash_order_paid(self):
+        product_id = self.create_product(quantity=2)
+        self.login_admin()
+        self.client.post('/add-rental', data={
+            '_csrf_token': self.csrf('/add-rental'), 'customer_mode': 'guest',
+            'guest_name': 'Khách xem đơn', 'guest_phone': '0900000044',
+            'start_date': '2026-08-10', 'end_date': '2026-08-12',
+            'product_id[]': [str(product_id)], 'quantity[]': ['1']})
+        with app.app_context():
+            rental = Rental.query.one()
+            rental_id = rental.id
+            self.assertEqual(rental.payment_status, 'unpaid')
+
+        detail = self.client.get(f'/rentals/{rental_id}')
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn('Áo dài đỏ'.encode(), detail.data)
+        self.assertIn(b'Ch&#432;a thanh to&#225;n', detail.data)
+        listing = self.client.get('/rentals')
+        self.assertIn(f'href="/rentals/{rental_id}"'.encode(), listing.data)
+
+        response = self.client.post(f'/rentals/{rental_id}/confirm-payment', data={
+            '_csrf_token': self.csrf(f'/rentals/{rental_id}')})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            rental = db.session.get(Rental, rental_id)
+            self.assertEqual(rental.payment_status, 'paid')
+            self.assertIsNotNone(rental.paid_at)
+        self.assertIn(b'&#272;&#227; thanh to&#225;n', self.client.get(f'/rentals/{rental_id}').data)
+        paid_orders = self.client.get('/rentals?payment_status=paid')
+        self.assertIn(rental.rental_code.encode(), paid_orders.data)
 
     def test_admin_invoice_renders(self):
         product_id = self.create_product(quantity=2)

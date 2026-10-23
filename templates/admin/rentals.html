@@ -2,13 +2,13 @@
 {% block title %}Quản lý đơn thuê — TPBD Phương Lan{% endblock %}
 
 {% block content %}
-<div class="page-title">
+<div class="page-title rental-page-title">
     <div>
         <span class="eyebrow">VẬN HÀNH ĐƠN THUÊ</span>
         <h1>Quản lý đơn thuê</h1>
         <p>Soạn trang phục, bàn giao và theo dõi hoàn trả theo đúng quy trình.</p>
     </div>
-    <a href="{{ url_for('add_rental') }}" class="btn btn-dark"><i class="fa-solid fa-plus"></i> Tạo đơn mới</a>
+    <a href="{{ url_for('add_rental') }}" class="btn btn-dark rental-create-btn"><i class="fa-solid fa-plus"></i> Tạo đơn mới</a>
 </div>
 
 <!-- B1/F3: Status tabs với badge đếm số lượng -->
@@ -42,7 +42,6 @@
 <!-- B1/F3: Search & date filter -->
 <form method="GET" action="{{ url_for('rentals') }}" class="rentals-filter-bar">
     {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-    {% if payment_status_filter %}<input type="hidden" name="payment_status" value="{{ payment_status_filter }}">{% endif %}
     <div class="filter-search">
         <i class="fa-solid fa-magnifying-glass"></i>
         <input type="text" name="q" value="{{ q }}" placeholder="Tìm mã đơn, tên khách, SĐT…" id="rental-search-input">
@@ -51,6 +50,14 @@
         <label>Từ ngày <input type="date" name="date_from" value="{{ date_from }}"></label>
         <label>Đến ngày <input type="date" name="date_to" value="{{ date_to }}"></label>
     </div>
+    <label class="payment-filter-label">Thanh toán
+        <select name="payment_status" class="form-select form-select-sm">
+            <option value="">Tất cả</option>
+            <option value="paid" {{ 'selected' if payment_status_filter == 'paid' }}>Đã thanh toán ({{ payment_counts.paid }})</option>
+            <option value="unpaid" {{ 'selected' if payment_status_filter == 'unpaid' }}>Chưa thanh toán ({{ payment_counts.unpaid }})</option>
+            <option value="customer_submitted" {{ 'selected' if payment_status_filter == 'customer_submitted' }}>Chờ xác nhận ({{ payment_counts.customer_submitted }})</option>
+        </select>
+    </label>
     <button type="submit" class="btn btn-primary btn-sm">Lọc</button>
     {% if q or date_from or date_to or payment_status_filter %}
     <a href="{{ url_for('rentals', status=status_filter) }}" class="btn btn-outline-secondary btn-sm">Xóa lọc</a>
@@ -77,7 +84,7 @@
                 <tr>
                     <th>Mã đơn</th>
                     <th>Khách hàng</th>
-                    <th>Trang phục / đạo cụ</th>
+                    <th>Sản phẩm</th>
                     <th>Thời gian thuê</th>
                     <th>Tổng tiền</th>
                     <th>Thanh toán</th>
@@ -89,7 +96,7 @@
                 {% for rental in rentals %}
                 <tr>
                     <td>
-                        <b>{{ rental.rental_code }}</b><br>
+                        <a class="rental-code-link" href="{{ url_for('rental_detail', id=rental.id) }}">{{ rental.rental_code }} <i class="fa-solid fa-arrow-up-right-from-square"></i></a><br>
                         <small class="text-muted">{{ rental.rental_date.strftime('%d/%m/%Y %H:%M') if rental.rental_date else 'N/A' }}</small>
                     </td>
                     <td>
@@ -98,21 +105,7 @@
                             <br><small class="text-muted">{{ rental.customer.phone }}</small>
                         {% endif %}
                     </td>
-                    <td>
-                        {% for detail in rental.details %}
-                            <div class="rental-item mb-1">
-                                {{ detail.product.name if detail.product else 'Sản phẩm đã xóa' }}
-                                <b>×{{ detail.quantity }}</b>
-                                {% if detail.selected_gender or detail.selected_size %}
-                                    <small class="text-muted">
-                                        ({% if detail.selected_gender %}{{ product_genders.get(detail.selected_gender, detail.selected_gender) }}{% endif %}{% if detail.selected_size %} · {{ detail.selected_size }}{% endif %})
-                                    </small>
-                                {% endif %}
-                            </div>
-                        {% else %}
-                            <span class="text-muted">Không có sản phẩm</span>
-                        {% endfor %}
-                    </td>
+                    <td><a class="rental-items-link" href="{{ url_for('rental_detail', id=rental.id) }}"><i class="fa-solid fa-box-open"></i> {{ rental.details|length }} sản phẩm <small>Xem chi tiết</small></a></td>
                     <td>
                         {{ rental.start_date.strftime('%d/%m/%Y') if rental.start_date else 'N/A' }}<br>
                         <small class="text-muted">đến {{ rental.end_date.strftime('%d/%m/%Y') if rental.end_date else 'N/A' }}</small>
@@ -123,11 +116,9 @@
                         {% if rental.adjustment_note %}<br><small class="text-muted">{{ rental.adjustment_note }}</small>{% endif %}
                     </td>
                     <td>
-                        {% if rental.payment_method == 'bank_transfer' %}
-                            <small>Chuyển khoản</small><br>
-                            {% if rental.payment_status == 'paid' %}<span class="badge text-bg-success">Đã thanh toán</span>{% elif rental.payment_status == 'customer_submitted' %}<span class="badge text-bg-info">Khách đã gửi GD</span>{% else %}<span class="badge text-bg-warning">Chờ xác nhận</span>{% endif %}
+                        <small>{{ 'Chuyển khoản' if rental.payment_method == 'bank_transfer' else 'Tại cửa hàng' }}</small><br>
+                            {% if rental.payment_status == 'paid' %}<span class="payment-pill is-paid"><i class="fa-solid fa-circle-check"></i> Đã thanh toán</span>{% elif rental.payment_status == 'customer_submitted' %}<span class="payment-pill is-review">Khách đã gửi giao dịch</span>{% else %}<span class="payment-pill is-unpaid">{{ 'Chờ xác nhận' if rental.payment_method == 'bank_transfer' else 'Chưa thanh toán' }}</span>{% endif %}
                             {% if rental.payment_receipt_url %}<br><a href="{{ rental.payment_receipt_url }}" target="_blank" class="receipt-admin-link"><img src="{{ rental.payment_receipt_url }}" alt="Ảnh giao dịch"><span>Xem GD</span></a>{% endif %}
-                        {% else %}<small>Tại cửa hàng</small><br><span class="badge text-bg-secondary">Chưa thanh toán</span>{% endif %}
                     </td>
                     <td>
                         {% if rental.status == 'pending' %}
@@ -152,13 +143,13 @@
                                     <button type="submit" class="btn btn-sm btn-primary">Lưu điều chỉnh</button>
                                 </form>
                             </details>
-                            {% if rental.payment_method == 'bank_transfer' and rental.payment_status != 'paid' and rental.status != 'cancelled' %}
+                            {% if rental.payment_status != 'paid' and rental.status != 'cancelled' %}
                                 <!-- F7: Bootstrap modal thay confirm() -->
                                 <button type="button" class="btn btn-sm btn-primary"
                                     data-bs-toggle="modal" data-bs-target="#confirmPaymentModal"
                                     data-rental-id="{{ rental.id }}"
                                     data-rental-code="{{ rental.rental_code }}">
-                                    <i class="fa-solid fa-money-check-dollar"></i> Xác nhận tiền
+                                    <i class="fa-solid fa-money-check-dollar"></i> Đánh dấu đã thu
                                 </button>
                             {% endif %}
                             <a href="{{ url_for('rental_invoice', id=rental.id) }}" target="_blank" class="btn btn-sm btn-info text-white" title="In Hóa Đơn A4">
@@ -301,13 +292,13 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p>Xác nhận đã nhận đúng số tiền chuyển khoản cho đơn <strong id="payment-code"></strong>?</p>
+                <p>Xác nhận đã nhận đủ tiền cho đơn <strong id="payment-code"></strong>?</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Huỷ</button>
                 <form method="post" id="payment-form">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-primary">Xác nhận đã nhận tiền</button>
+                    <button type="submit" class="btn btn-primary">Xác nhận đã thu tiền</button>
                 </form>
             </div>
         </div>
