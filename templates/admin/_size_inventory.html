@@ -1,4 +1,4 @@
-{% set groups = product.size_inventory_groups if product is defined else [{'gender': 'male', 'sizes': {}}] %}
+{% set groups = groups if groups is defined else (product.size_inventory_groups if product is defined else [{'gender': 'male', 'sizes': {}}]) %}
 <div class="col-12 mb-3">
   <label class="form-label fw-bold">Phân loại, size và số lượng *</label>
   <div id="variantGroups" class="d-grid gap-3">

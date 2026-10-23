@@ -243,6 +243,23 @@ def get_product_categories():
     result = DEFAULT_CATEGORIES + managed + existing
     return list(dict.fromkeys(result))
 
+def get_product_category_options():
+    """Return managed categories with an explicit marker for parent categories."""
+    options = []
+    for category in Category.query.order_by(
+            Category.parent_id.asc(), Category.sort_order.asc(), Category.name.asc()).all():
+        options.append({
+            'name': category.name,
+            'has_children': bool(category.children),
+            'is_child': category.parent_id is not None,
+        })
+
+    known_names = {option['name'] for option in options}
+    for name in get_product_categories():
+        if name not in known_names:
+            options.append({'name': name, 'has_children': False, 'is_child': False})
+    return options
+
 def category_from_form():
     category = request.form.get('category', '').strip()
     if category == '__other__':
@@ -281,6 +298,62 @@ def product_variants_from_form():
     if not any(item['quantity'] for item in variants):
         raise ValueError('Tổng số lượng sản phẩm phải lớn hơn 0!')
     return variants
+
+def product_form_context(product=None, submitted=False):
+    """Build product form values from submitted data or the persisted product."""
+    if submitted:
+        names = request.form.getlist('variant_gender[]')
+        sizes = request.form.getlist('variant_size[]')
+        quantities = request.form.getlist('variant_quantity[]')
+        submitted_groups = {}
+        for gender, size, quantity in zip(names, sizes, quantities):
+            group = submitted_groups.setdefault(gender, {'gender': gender, 'sizes': {}})
+            try:
+                numeric_quantity = int(quantity)
+            except (TypeError, ValueError):
+                numeric_quantity = 0
+            group['sizes'][size] = {'quantity': numeric_quantity, 'available': numeric_quantity}
+        groups = list(submitted_groups.values())
+        if not groups:
+            groups = [{'gender': 'male', 'sizes': {}}]
+        category = request.form.get('category', '')
+        custom_category = request.form.get('custom_category', '')
+        name = request.form.get('name', '')
+        description = request.form.get('description', '')
+        price_per_day = request.form.get('price_per_day', '')
+        deposit = request.form.get('deposit', '0')
+        image_url = request.form.get('image_url', '')
+        selected_category = custom_category if category == '__other__' else category
+    else:
+        groups = product.size_inventory_groups if product else [{'gender': 'male', 'sizes': {}}]
+        name = product.name if product else ''
+        description = (product.description or '') if product else ''
+        price_per_day = product.price_per_day if product else ''
+        deposit = (product.deposit or 0) if product else 0
+        image_url = (product.image_url or '') if product else ''
+        selected_category = product.category if product else ''
+        custom_category = ''
+    return {
+        'name': name,
+        'description': description,
+        'price_per_day': price_per_day,
+        'deposit': deposit,
+        'image_url': image_url,
+        'selected_category': selected_category,
+        'custom_category': custom_category,
+        'groups': groups,
+    }
+
+def render_product_form(template, product=None, submitted=False, status=200):
+    context = product_form_context(product=product, submitted=submitted)
+    context.update(
+        product=product,
+        categories=get_product_category_options(),
+        genders=PRODUCT_GENDERS,
+        sizes=PRODUCT_SIZES,
+        submitted=submitted,
+    )
+    return render_template(template, **context), status
 
 def update_product_variants(product, submitted_variants):
     old = {}
@@ -1117,14 +1190,14 @@ def add_product():
             image_url = product_image_from_request()
         except ValueError as exc:
             flash(str(exc), 'danger')
-            return redirect(url_for('add_product'))
+            return render_product_form('admin/add_product.html', submitted=True)
         
         try:
             category = category_from_form()
             variants = product_variants_from_form()
         except ValueError as exc:
             flash(str(exc), 'danger')
-            return redirect(url_for('add_product'))
+            return render_product_form('admin/add_product.html', submitted=True)
 
         try:
             name = request.form.get('name', '').strip()
@@ -1135,7 +1208,7 @@ def add_product():
         except (TypeError, ValueError):
             db.session.rollback()
             flash('Tên, giá thuê, tiền cọc hoặc số lượng không hợp lệ!', 'danger')
-            return redirect(url_for('add_product'))
+            return render_product_form('admin/add_product.html', submitted=True)
 
         product = Product(
             name=name,
@@ -1152,8 +1225,7 @@ def add_product():
         flash('Thêm sản phẩm thành công!', 'success')
         return redirect(url_for('products'))
     
-    return render_template('admin/add_product.html', categories=get_product_categories(),
-                           genders=PRODUCT_GENDERS, sizes=PRODUCT_SIZES)
+    return render_product_form('admin/add_product.html')
 
 @app.route('/edit-product/<int:id>', methods=['GET', 'POST'])
 @login_required
@@ -1161,35 +1233,49 @@ def edit_product(id):
     product = Product.query.get_or_404(id)
     
     if request.method == 'POST':
-        product.name = request.form['name']
         try:
-            product.category = category_from_form()
+            category = category_from_form()
             variants = product_variants_from_form()
         except ValueError as exc:
+            db.session.rollback()
             flash(str(exc), 'danger')
-            return redirect(url_for('edit_product', id=id))
-        product.description = request.form.get('description', '')
-        product.price_per_day = float(request.form['price_per_day'])
-        product.deposit = float(request.form.get('deposit', 0))
+            return render_product_form('admin/edit_product.html', product=product, submitted=True)
         try:
             update_product_variants(product, variants)
         except ValueError as exc:
+            db.session.rollback()
             flash(str(exc), 'danger')
-            return redirect(url_for('edit_product', id=id))
+            return render_product_form('admin/edit_product.html', product=product, submitted=True)
+
+        try:
+            name = request.form.get('name', '').strip()
+            price_per_day = float(request.form.get('price_per_day', ''))
+            deposit = float(request.form.get('deposit') or 0)
+            if not name or price_per_day < 0 or deposit < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            db.session.rollback()
+            flash('Tên, giá thuê, tiền cọc hoặc số lượng không hợp lệ!', 'danger')
+            return render_product_form('admin/edit_product.html', product=product, submitted=True)
+
+        product.name = name
+        product.category = category
+        product.description = request.form.get('description', '')
+        product.price_per_day = price_per_day
+        product.deposit = deposit
         
         try:
             product.image_url = product_image_from_request(product.image_url)
         except ValueError as exc:
+            db.session.rollback()
             flash(str(exc), 'danger')
-            return redirect(url_for('edit_product', id=id))
+            return render_product_form('admin/edit_product.html', product=product, submitted=True)
         
         db.session.commit()
         flash('Cập nhật sản phẩm thành công!', 'success')
         return redirect(url_for('products'))
     
-    return render_template('admin/edit_product.html', product=product,
-                           categories=get_product_categories(), genders=PRODUCT_GENDERS,
-                           sizes=PRODUCT_SIZES)
+    return render_product_form('admin/edit_product.html', product=product)
 
 @app.route('/delete-product/<int:id>', methods=['POST'])
 @login_required
@@ -1232,7 +1318,11 @@ def rentals():
         ))
     if status_filter in ('pending', 'rented', 'returned', 'cancelled'):
         query = query.filter(Rental.status == status_filter)
-    if payment_status_filter in ('customer_submitted',):
+    if payment_status_filter == 'paid':
+        query = query.filter(Rental.payment_status == 'paid')
+    elif payment_status_filter == 'unpaid':
+        query = query.filter(Rental.payment_status.in_(('unpaid', 'pending_confirmation')))
+    elif payment_status_filter == 'customer_submitted':
         query = query.filter(Rental.payment_status == payment_status_filter)
     if date_from:
         try:
@@ -1254,13 +1344,26 @@ def rentals():
         'returned': Rental.query.filter_by(status='returned').count(),
         'cancelled': Rental.query.filter_by(status='cancelled').count(),
     }
+    payment_counts = {
+        'paid': Rental.query.filter_by(payment_status='paid').count(),
+        'unpaid': Rental.query.filter(Rental.payment_status.in_(
+            ('unpaid', 'pending_confirmation'))).count(),
+        'customer_submitted': Rental.query.filter_by(payment_status='customer_submitted').count(),
+    }
 
     pagination = query.order_by(Rental.rental_date.desc()).paginate(
         page=request.args.get('page', 1, type=int), per_page=25, error_out=False)
     return render_template('admin/rentals.html', rentals=pagination.items,
                            pagination=pagination, q=q, status_filter=status_filter,
                            payment_status_filter=payment_status_filter,
-                           date_from=date_from, date_to=date_to, status_counts=status_counts)
+                           date_from=date_from, date_to=date_to, status_counts=status_counts,
+                           payment_counts=payment_counts)
+
+@app.route('/rentals/<int:id>')
+@login_required
+def rental_detail(id):
+    rental = Rental.query.get_or_404(id)
+    return render_template('admin/rental_detail.html', rental=rental)
 
 @app.route('/rentals/<int:id>/invoice')
 @login_required
@@ -1294,9 +1397,7 @@ def update_rental_adjustment(id):
 @login_required
 def confirm_rental_payment(id):
     rental = Rental.query.get_or_404(id)
-    if rental.payment_method != 'bank_transfer':
-        flash('Đơn này không chọn thanh toán chuyển khoản.', 'warning')
-    elif rental.payment_status == 'paid':
+    if rental.payment_status == 'paid':
         flash('Đơn này đã được xác nhận thanh toán.', 'warning')
     elif rental.status == 'cancelled':
         flash('Không thể xác nhận thanh toán cho đơn đã hủy.', 'danger')

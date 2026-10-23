@@ -1,22 +1,22 @@
 {% extends "base.html" %}
+{% block title %}Chi ti&#7871;t &#273;&#417;n {{ rental.rental_code }}{% endblock %}
 {% block content %}
-<h2>Tạo đơn thuê</h2>
-<form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <select name="customer_id" class="form-control mb-2" required>
-        <option value="">Chọn khách hàng</option>
-        {% for c in customers %}
-        <option value="{{ c.id }}">{{ c.fullname }} - {{ c.phone }}</option>
-        {% endfor %}
-    </select>
-    <select name="product_id" class="form-control mb-2" required>
-        <option value="">Chọn sản phẩm</option>
-        {% for p in products %}
-        <option value="{{ p.id }}">{{ p.name }} - {{ "{:,.0f}".format(p.price_per_day) }} VNĐ/ngày</option>
-        {% endfor %}
-    </select>
-    <input type="date" name="start_date" class="form-control mb-2" required>
-    <input type="date" name="end_date" class="form-control mb-2" required>
-    <button type="submit" class="btn btn-primary">Tạo đơn</button>
-    <a href="/rentals" class="btn btn-secondary">Hủy</a>
-</form>
+<div class="rental-detail-page">
+  <a class="detail-back" href="{{ url_for('rentals') }}"><i class="fa-solid fa-arrow-left"></i> Quay l&#7841;i danh s&#225;ch &#273;&#417;n</a>
+  <header class="rental-detail-heading">
+    <div><span class="eyebrow">CHI TI&#7870;T &#272;&#416;N THU&#202;</span><h1>{{ rental.rental_code }}</h1><p>T&#7841;o l&#250;c {{ rental.rental_date.strftime('%d/%m/%Y %H:%M') if rental.rental_date else 'N/A' }}</p></div>
+    <div class="detail-heading-actions"><a class="btn btn-outline-secondary" href="{{ url_for('rental_invoice', id=rental.id) }}" target="_blank"><i class="fa-solid fa-print"></i> In h&#243;a &#273;&#417;n</a>{% if rental.payment_status != 'paid' and rental.status != 'cancelled' %}<form method="post" action="{{ url_for('confirm_rental_payment', id=rental.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-success" type="submit"><i class="fa-solid fa-circle-check"></i> X&#225;c nh&#7853;n &#273;&#227; thanh to&#225;n</button></form>{% endif %}</div>
+  </header>
+  <div class="rental-detail-grid">
+    <section class="detail-card customer-card"><h2><i class="fa-regular fa-user"></i> Kh&#225;ch h&#224;ng</h2><strong>{{ rental.customer.fullname if rental.customer else 'Guest' }}</strong><p>{{ rental.customer.phone if rental.customer and rental.customer.phone else 'No phone number' }}</p><div class="detail-dates"><div><small>Ng&#224;y nh&#7853;n</small><b>{{ rental.start_date.strftime('%d/%m/%Y') if rental.start_date else '-' }}</b></div><div><small>Ng&#224;y tr&#7843; d&#7921; ki&#7871;n</small><b>{{ rental.end_date.strftime('%d/%m/%Y') if rental.end_date else '-' }}</b></div></div></section>
+    <section class="detail-card payment-card"><h2><i class="fa-regular fa-credit-card"></i> Thanh to&#225;n</h2><span class="payment-pill {{ 'is-paid' if rental.payment_status == 'paid' else ('is-review' if rental.payment_status == 'customer_submitted' else 'is-unpaid') }}">{% if rental.payment_status == 'paid' %}&#272;&#227; thanh to&#225;n{% elif rental.payment_status == 'customer_submitted' %}Kh&#225;ch &#273;&#227; g&#7917;i giao d&#7883;ch{% elif rental.payment_method == 'bank_transfer' %}Ch&#7901; x&#225;c nh&#7853;n{% else %}Ch&#432;a thanh to&#225;n{% endif %}</span><p>H&#236;nh th&#7913;c: {% if rental.payment_method == 'bank_transfer' %}Chuy&#7875;n kho&#7843;n{% else %}T&#7841;i c&#7917;a h&#224;ng{% endif %}</p>{% if rental.paid_at %}<p>&#272;&#227; thu l&#250;c {{ rental.paid_at.strftime('%d/%m/%Y %H:%M') }}</p>{% endif %}{% if rental.payment_receipt_url %}<a href="{{ rental.payment_receipt_url }}" target="_blank" rel="noopener">Xem &#7843;nh giao d&#7883;ch</a>{% endif %}</section>
+  </div>
+  <section class="detail-card detail-items-card"><div class="detail-section-heading"><div><h2>S&#7843;n ph&#7849;m &#273;&#227; &#273;&#7863;t</h2><p>{{ rental.details|length }} d&#242;ng s&#7843;n ph&#7849;m trong &#273;&#417;n n&#224;y</p></div><span class="status {{ rental.status }}">{% if rental.status == 'pending' %}Ch&#7901; so&#7841;n{% elif rental.status == 'rented' %}&#272;ang cho thu&#234;{% elif rental.status == 'returned' %}&#272;&#227; ho&#224;n t&#7845;t{% else %}&#272;&#227; h&#7911;y{% endif %}</span></div>
+    <div class="rental-detail-table-wrap"><table class="rental-detail-table"><thead><tr><th>S&#7843;n ph&#7849;m</th><th>Ph&#226;n lo&#7841;i</th><th>Th&#7901;i gian thu&#234;</th><th>&#272;&#417;n gi&#225;/ng&#224;y</th><th>S&#7889; l&#432;&#7907;ng</th><th>S&#7889; ng&#224;y</th><th>T&#7841;m t&#237;nh</th></tr></thead><tbody>
+      {% for detail in rental.details %}<tr><td><strong>{% if detail.product %}{{ detail.product.name }}{% else %}S&#7843;n ph&#7849;m &#273;&#227; x&#243;a{% endif %}</strong></td><td>{% if detail.selected_gender or detail.selected_size %}{{ product_genders.get(detail.selected_gender, detail.selected_gender) if detail.selected_gender else '' }}{% if detail.selected_size %} &middot; {{ detail.selected_size }}{% endif %}{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td><td>{{ detail.start_date.strftime('%d/%m/%Y') if detail.start_date else rental.start_date.strftime('%d/%m/%Y') }} &ndash; {{ detail.end_date.strftime('%d/%m/%Y') if detail.end_date else rental.end_date.strftime('%d/%m/%Y') }}</td><td>{{ '{:,.0f}'.format(detail.price_per_day) }}&#8363;</td><td>{{ detail.quantity }}</td><td>{{ detail.days }}</td><td><strong>{{ '{:,.0f}'.format(detail.subtotal) }}&#8363;</strong></td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted">&#272;&#417;n ch&#432;a c&#243; s&#7843;n ph&#7849;m.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="rental-total"><div><span>Ti&#7873;n s&#7843;n ph&#7849;m</span><b>{{ '{:,.0f}'.format(rental.total_amount - (rental.adjustment_amount or 0)) }}&#8363;</b></div>{% if rental.adjustment_amount %}<div><span>&#272;i&#7873;u ch&#7881;nh{% if rental.adjustment_note %} · {{ rental.adjustment_note }}{% endif %}</span><b>{{ '+' if rental.adjustment_amount > 0 }}{{ '{:,.0f}'.format(rental.adjustment_amount) }}&#8363;</b></div>{% endif %}<div class="grand-total"><span>T&#7893;ng thanh to&#225;n</span><strong>{{ '{:,.0f}'.format(rental.total_amount or 0) }}&#8363;</strong></div></div>
+  </section>
+  {% if rental.status == 'cancelled' and rental.cancel_reason %}<section class="detail-card cancellation-card"><h2>L&#253; do h&#7911;y</h2><p>{{ rental.cancel_reason }}</p></section>{% endif %}
+</div>
 {% endblock %}
